@@ -1,6 +1,10 @@
-__pycache__/
+*.db
 *.py[cod]
-.venv/
-.pytest_cache/
-.mypy_cache/
 .DS_Store
+.mypy_cache/
+.pytest_cache/
+.venv/
+__pycache__/
+bricks/web/app/dist/
+bricks/web/app/node_modules/
+chip.db

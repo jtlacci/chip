@@ -1,0 +1,4 @@
+brick: api
+
+# The route table is in contract.py (human-only).
+# Never store credentials or secrets here.

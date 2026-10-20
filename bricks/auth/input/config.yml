@@ -1,0 +1,4 @@
+brick: auth
+
+# Roles, permissions and durations are in contract.py (human-only).
+# Never store credentials or secrets here.

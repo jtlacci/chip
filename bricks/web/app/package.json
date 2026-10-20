@@ -1,0 +1,9 @@
+{
+  "name": "chip-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CHIP in the browser: feed, chat and the agent panel.",
+  "scripts": {
+    "build": "node build.js"
+  }
+}

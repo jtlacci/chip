@@ -1,13 +1,25 @@
 # chip
 
-The first brick project, built on [brick-framework](https://github.com/jtlacci/brick-framework).
+A personal agent web app, built on [brick-framework](https://github.com/jtlacci/brick-framework). The agent reads your calendar and Gmail, makes a feed, talks with you in chat and does tasks. It asks for your approval before each action that changes something outside CHIP.
 
 | Brick | What it does | Deterministic |
 | --- | --- | --- |
-| `market_data` | The latest Hyperliquid mid price for one perpetual (`POST /info {"type": "allMids"}`) | No |
-| `signal` | Buy when the mid price is below a threshold, else hold. Uses `market_data`. | Yes |
+| `web` | The browser app: feed, feed instructions, chat, agent panel (`KIND = "web"`, plain JavaScript) | Yes |
+| `api` | The HTTP surface: asks `auth`, then reads or writes `store` | Yes |
+| `auth` | Roles (admin, owner, guest), sessions, 7-day one-use invites, the permission table | Yes |
+| `store` | Records in collections over one SQLite database | Yes |
 
-Pull requests into `main` are evaluated by the brick-runner service, which posts the `brick-runner` status and a comment. Comment `/brick holdout <brick>` or `/brick promote <brick>` to run the holdout or promote (allowed logins only). Both bricks start with synthetic data (`data.lock` is `unpinned`); pin captured data when it exists.
+feed, agent, approvals, model, calendar and gmail come in later milestones.
+
+`server/serve.py` serves the app and turns each `/api/*` request into one api run. It mints session and invite tokens and passes only their hashes to the bricks. Run it locally:
+
+```sh
+(cd bricks/web/app && node build.js)
+CHIP_DEV=1 CHIP_DB=chip.db python3 server/serve.py --port 8000
+# open http://127.0.0.1:8000/auth/dev?as=yourname: the first person to sign in is the admin
+```
+
+Pull requests into `main` are evaluated by the brick-runner service, which posts the `brick-runner` status and a comment. Comment `/brick holdout <brick>` or `/brick promote <brick>` to run the holdout or promote (allowed logins only). A new brick starts with synthetic data (`data.lock` is `unpinned`); pin captured data when it exists.
 
 ---
 
@@ -69,7 +81,7 @@ There are no mode options. `run` calls `_runtime.run_brick`, which builds the ru
 
 ```python
 ctx["io"].external("prices", request, _fetch_live)   # an external source
-ctx["io"].sibling("market_data", request, run)       # a sibling's run, passed, not called
+ctx["io"].sibling("calendar", request, run)          # a sibling's run, passed, not called
 ```
 
 | Where | io | What happens |

@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 import functools
 import hashlib
 import importlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -102,6 +103,10 @@ def load_config(brick: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- capture
 
 _spool_lock = threading.Lock()
+# A number for each captured exchange in this process. Two identical calls in
+# one run would otherwise be identical records, and the runner's store (which
+# names a record by the hash of its content) would keep only one of them.
+_seq = itertools.count()
 
 
 def _capture(record: dict[str, Any]) -> None:
@@ -136,7 +141,7 @@ class LiveIO:
 
     def external(self, name: str, request: Any, call: Callable[[Any], Any]) -> Any:
         record = {"kind": "exchange", "name": f"external:{name}", "request": request,
-                  "request_hash": digest(request), "time": now(), **_where()}
+                  "request_hash": digest(request), "time": now(), "seq": next(_seq), **_where()}
         try:
             response = call(request)
         except Exception as exc:
@@ -147,7 +152,7 @@ class LiveIO:
 
     def sibling(self, brick: str, request: Any, call: Callable[[Any], Any]) -> Any:
         record = {"kind": "exchange", "name": f"sibling:{brick}", "request": request,
-                  "request_hash": digest(request), "time": now(), **_where()}
+                  "request_hash": digest(request), "time": now(), "seq": next(_seq), **_where()}
         try:
             response = call(request)
         except Exception as exc:
