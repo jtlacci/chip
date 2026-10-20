@@ -1,0 +1,4 @@
+brick: store
+
+# The database file path is read from the CHIP_DB environment variable by the
+# adapter, not from here. Never store credentials or secrets here.

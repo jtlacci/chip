@@ -2,7 +2,22 @@
 
 A personal agent web app, built on [brick-framework](https://github.com/jtlacci/brick-framework). The agent reads your calendar and Gmail, makes a feed, talks with you in chat and does tasks. It asks for your approval before each action that changes something outside CHIP.
 
-The bricks (web, api, feed, agent, approvals, model, calendar, gmail, store) come in later pull requests.
+| Brick | What it does | Deterministic |
+| --- | --- | --- |
+| `web` | The browser app: feed, feed instructions, chat, agent panel (`KIND = "web"`, plain JavaScript) | Yes |
+| `api` | The HTTP surface: asks `auth`, then reads or writes `store` | Yes |
+| `auth` | Roles (admin, owner, guest), sessions, 7-day one-use invites, the permission table | Yes |
+| `store` | Records in collections over one SQLite database | Yes |
+
+feed, agent, approvals, model, calendar and gmail come in later milestones.
+
+`server/serve.py` serves the app and turns each `/api/*` request into one api run. It mints session and invite tokens and passes only their hashes to the bricks. Run it locally:
+
+```sh
+(cd bricks/web/app && node build.js)
+CHIP_DEV=1 CHIP_DB=chip.db python3 server/serve.py --port 8000
+# open http://127.0.0.1:8000/auth/dev?as=yourname: the first person to sign in is the admin
+```
 
 Pull requests into `main` are evaluated by the brick-runner service, which posts the `brick-runner` status and a comment. Comment `/brick holdout <brick>` or `/brick promote <brick>` to run the holdout or promote (allowed logins only). A new brick starts with synthetic data (`data.lock` is `unpinned`); pin captured data when it exists.
 
