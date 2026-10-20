@@ -1,0 +1,13 @@
+# The framework's deterministic checks: the brick linter and the change check
+# (one change belongs to one loop). They run on GitHub-hosted runners and need
+# no secrets. Evaluation runs elsewhere: on the brick-runner machine.
+name: checks
+
+on: pull_request
+
+jobs:
+  checks:
+    uses: jtlacci/brick-framework/.github/workflows/checks.yml@evaluation-system
+    with:
+      # Switch to main after jtlacci/brick-framework#8 merges.
+      framework-ref: evaluation-system

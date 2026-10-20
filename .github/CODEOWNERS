@@ -1,0 +1,11 @@
+# A human approves every change. Agents are never code owners.
+# Branch protection on main requires review from code owners.
+*                                   @jtlacci
+
+# Human-only: contracts, evaluation policy and pinned data.
+/bricks/*/contract.py               @jtlacci
+/bricks/*/evaluation/policy.yml     @jtlacci
+/bricks/*/evaluation/data.lock      @jtlacci
+/bricks/_runtime.py                 @jtlacci
+/tools/                             @jtlacci
+/.github/                           @jtlacci

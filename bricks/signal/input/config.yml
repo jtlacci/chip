@@ -1,0 +1,4 @@
+brick: signal
+
+# Add brick-specific configuration below. The runtime passes it to the brick's
+# logic as ctx["config"]. Never store credentials or secrets here.
