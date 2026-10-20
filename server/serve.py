@@ -4,7 +4,10 @@ Tokens never enter a brick. The server mints session and invite tokens, keeps
 them in HttpOnly cookies or invite links, and passes only their SHA-256 hashes
 to the api brick (the runtime records every brick input).
 
-Run it locally (Google sign-in comes in M3; CHIP_DEV=1 adds /auth/dev):
+Sign-in is Google (server/google.py): /auth/google signs a person in with
+the openid, email and profile scopes only; /auth/google/connect lets the admin
+connect CHIP's own Google account one time. CHIP_DEV=1 also adds /auth/dev for
+local work. Run it locally:
 
     (cd bricks/web/app && node build.js)
     CHIP_DEV=1 CHIP_DB=chip.db python3 server/serve.py --port 8000
@@ -23,16 +26,20 @@ import json
 import os
 from pathlib import Path
 import secrets
+import subprocess
 import sys
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bricks.api import run as api  # noqa: E402
+from bricks.auth import run as auth  # noqa: E402
+import google  # noqa: E402  (server/google.py)
 
 DIST = ROOT / "bricks" / "web" / "app" / "dist"
-SESSION_COOKIE, INVITE_COOKIE = "chip_session", "chip_invite"
+SESSION_COOKIE, INVITE_COOKIE, OAUTH_COOKIE = "chip_session", "chip_invite", "chip_oauth"
 MAX_BODY = 65536
 SECURE = os.environ.get("CHIP_SECURE") == "1"
 DEV = os.environ.get("CHIP_DEV") == "1"
@@ -132,8 +139,95 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         token = urlsplit(self.path).path.split("/", 2)[2]
         self.send_response(303)
         self.send_header("Set-Cookie", cookie(INVITE_COOKIE, token, 7 * 24 * 3600))
-        self.send_header("Location", "/auth/dev" if DEV else "/auth/google")
+        self.send_header("Location", "/auth/dev" if DEV and not google.configured() else "/auth/google")
         self.end_headers()
+
+    def redirect(self, location: str, cookies: list[str] = ()) -> None:
+        self.send_response(303)
+        for value in cookies:
+            self.send_header("Set-Cookie", value)
+        self.send_header("Location", location)
+        self.end_headers()
+
+    def problem(self, status: int, text: str) -> None:
+        data = (f"<!doctype html><meta charset=utf-8><title>CHIP</title><p>{text}</p>"
+                "<p><a href=/feed>Back to CHIP</a></p>").encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def may(self, action: str) -> bool:
+        session = self.cookies().get(SESSION_COOKIE)
+        if not session:
+            return False
+        return bool(auth({"op": "check", "session_hash": digest(session), "action": action, "now": now()}).get("allow"))
+
+    def google_start(self, connect: bool) -> None:
+        if not google.configured():
+            self.problem(503, "Google sign-in is not set up on this server.")
+            return
+        if connect:
+            if not self.may("connect_account"):
+                self.problem(403, "Only the admin can connect CHIP's Google account.")
+                return
+            url, saved = google.start("connect", google.CONNECT_SCOPES, offline=True)
+        else:
+            scopes = api({"method": "GET", "path": "/api/session/scopes", "now": now()})["body"]["scopes"]
+            url, saved = google.start("signin", scopes)
+        self.redirect(url, [cookie(OAUTH_COOKIE, saved, 600)])
+
+    def google_callback(self) -> None:
+        query = parse_qs(urlsplit(self.path).query)
+        clear = cookie(OAUTH_COOKIE, "", 0)
+        if "error" in query:
+            self.problem(400, "Google sign-in was cancelled.")
+            return
+        try:
+            result = google.finish(self.cookies().get(OAUTH_COOKIE, ""), (query.get("state") or [""])[0],
+                                   (query.get("code") or [""])[0])
+        except google.GoogleError as exc:
+            self.problem(400, f"Google sign-in failed: {exc}.")
+            return
+        if result["purpose"] == "connect":
+            self.connect_account(result, clear)
+            return
+        token = secrets.token_urlsafe(32)
+        request = {"method": "POST", "path": "/api/session", "now": now(), "session_hash": digest(token),
+                   "identity": result["identity"]}
+        invite = self.cookies().get(INVITE_COOKIE)
+        if invite:
+            request["invite_hash"] = digest(invite)
+        answer = api(request)
+        if answer["status"] != 200:
+            reason = answer["body"].get("error")
+            self.problem(403, "You need an invite to join CHIP. Ask an owner for a link." if reason == "invite_required"
+                         else "This invite link has expired or was already used. Ask an owner for a new one.")
+            return
+        self.redirect("/feed", [cookie(SESSION_COOKIE, token, 30 * 24 * 3600), cookie(INVITE_COOKIE, "", 0), clear])
+
+    def connect_account(self, result: dict, clear: str) -> None:
+        """Keep CHIP's refresh token out of every brick: a file only the server reads, and SSM for restores."""
+        if not self.may("connect_account"):
+            self.problem(403, "Only the admin can connect CHIP's Google account.")
+            return
+        missing = [s for s in google.CONNECT_SCOPES if s.startswith("https://") and s not in result["scopes"]]
+        if missing or not result.get("refresh_token"):
+            self.problem(400, "Google did not grant everything CHIP needs. Connect again and allow every item.")
+            return
+        path = Path(os.environ.get("CHIP_GOOGLE_TOKEN_FILE", str(ROOT / "google-refresh-token")))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(mode=0o600)
+        path.write_text(result["refresh_token"])
+        if os.environ.get("CHIP_SSM_REGION"):
+            subprocess.run(["aws", "ssm", "put-parameter", "--region", os.environ["CHIP_SSM_REGION"],
+                            "--name", "/chip/google/refresh-token", "--type", "SecureString", "--overwrite",
+                            "--value", "file://" + str(path)], capture_output=True, timeout=30)
+        session = self.cookies().get(SESSION_COOKIE, "")
+        api({"method": "PUT", "path": "/api/account", "now": now(), "session_hash": digest(session),
+             "body": {"email": result["identity"]["email"], "scopes": result["scopes"]}})
+        self.redirect("/agent", [clear])
 
     def dev_sign_in(self) -> None:
         name = (parse_qs(urlsplit(self.path).query).get("as") or ["dev"])[0][:40]
@@ -161,6 +255,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.join()
         elif path == "/auth/dev" and DEV:
             self.dev_sign_in()
+        elif path == "/auth/google":
+            self.google_start(connect=False)
+        elif path == "/auth/google/connect":
+            self.google_start(connect=True)
+        elif path == "/auth/google/callback":
+            self.google_callback()
         else:
             if "." not in path.rsplit("/", 1)[-1]:
                 self.path = "/index.html"   # the app routes /feed, /chat and /agent itself

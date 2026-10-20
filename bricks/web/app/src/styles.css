@@ -125,6 +125,9 @@ a { color: var(--accent); }
 .agent-name { margin: 10px 0 0; font-size: 20px; font-weight: 700; }
 .agent-status { margin: 2px 0 0; display: inline-flex; align-items: center; gap: 6px; color: var(--good); font-size: 13px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.agent-status.off { color: var(--muted); }
+.agent-status.off .dot { background: #c7c7cc; }
+.agent-connect { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 10px; border-radius: 12px; background: var(--soft); }
 .tab { flex: 1; padding: 7px 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
 .tab[aria-selected="true"] { background: var(--page); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(29, 29, 31, .08); }
@@ -170,3 +173,8 @@ a { color: var(--accent); }
   .post { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; }
   .post-icon { width: 30px; height: 30px; font-size: 15px; }
 }
+
+/* ---------------------------------------------------------------- the privacy page */
+.prose { max-width: 640px; padding-bottom: 48px; }
+.prose h2 { font-size: 17px; margin: 24px 0 4px; }
+.prose p { margin: 6px 0; color: var(--ink); }
