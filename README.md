@@ -1,6 +1,6 @@
-# bricks
+# chip
 
-John's brick repository, built on [brick-framework](https://github.com/jtlacci/brick-framework).
+The first brick project, built on [brick-framework](https://github.com/jtlacci/brick-framework).
 
 | Brick | What it does | Deterministic |
 | --- | --- | --- |
