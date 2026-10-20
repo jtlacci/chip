@@ -1,13 +1,10 @@
 # chip
 
-The first brick project, built on [brick-framework](https://github.com/jtlacci/brick-framework).
+A personal agent web app, built on [brick-framework](https://github.com/jtlacci/brick-framework). The agent reads your calendar and Gmail, makes a feed, talks with you in chat and does tasks. It asks for your approval before each action that changes something outside CHIP.
 
-| Brick | What it does | Deterministic |
-| --- | --- | --- |
-| `market_data` | The latest Hyperliquid mid price for one perpetual (`POST /info {"type": "allMids"}`) | No |
-| `signal` | Buy when the mid price is below a threshold, else hold. Uses `market_data`. | Yes |
+The bricks (web, api, feed, agent, approvals, model, calendar, gmail, store) come in later pull requests.
 
-Pull requests into `main` are evaluated by the brick-runner service, which posts the `brick-runner` status and a comment. Comment `/brick holdout <brick>` or `/brick promote <brick>` to run the holdout or promote (allowed logins only). Both bricks start with synthetic data (`data.lock` is `unpinned`); pin captured data when it exists.
+Pull requests into `main` are evaluated by the brick-runner service, which posts the `brick-runner` status and a comment. Comment `/brick holdout <brick>` or `/brick promote <brick>` to run the holdout or promote (allowed logins only). A new brick starts with synthetic data (`data.lock` is `unpinned`); pin captured data when it exists.
 
 ---
 
@@ -69,7 +66,7 @@ There are no mode options. `run` calls `_runtime.run_brick`, which builds the ru
 
 ```python
 ctx["io"].external("prices", request, _fetch_live)   # an external source
-ctx["io"].sibling("market_data", request, run)       # a sibling's run, passed, not called
+ctx["io"].sibling("calendar", request, run)          # a sibling's run, passed, not called
 ```
 
 | Where | io | What happens |
