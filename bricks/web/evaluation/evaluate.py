@@ -39,6 +39,7 @@ GATES: tuple[tuple[str, str, float], ...] = (
     ("sub_nav", ">=", 1.0),               # Action component: the tabs work
     ("instructions", ">=", 1.0),          # Feed instructions: owners save, guests cannot
     ("sign_in_page", ">=", 1.0),          # no session: the sign-in page
+    ("first_message", ">=", 1.0),         # a new install: the first message in an empty chat is sent
     ("tasks", ">=", 1.0),                 # a person can do each task (the agent, 2 of 3 runs)
 )
 
@@ -58,6 +59,8 @@ TASKS = {
                           "task": "Change the feed instructions to 'Only NYC events this weekend' and save them."},
     "approvals": {"page": "/agent", "role": "owner",
                   "task": "Open CHIP's approvals. Tell me the title of the newest approval, word for word."},
+    "first_message": {"page": "/chat", "role": "guest", "empty": True,
+                      "task": "This chat has no messages yet. Send the first message: 'Hello CHIP'."},
     "go_to_chat": {"page": "/feed", "role": "guest",
                    "task": "Go to the chat."},
     "sign_in": {"page": "/feed", "role": "guest", "signed_out": True,
@@ -196,6 +199,8 @@ def observe(input, browser, base_url, agent=None):
             seen["typing"] = page.evaluate("window.__typing")
         elif check == "upload":
             seen["upload"] = _upload(page, sent)
+        elif check == "first_message":
+            seen["first_message"] = _first_message(page, sent)
         elif check == "animation":
             avatar = page.locator("[data-avatar]:visible").first
             first = avatar.screenshot(animations="allow")
@@ -246,6 +251,16 @@ def _upload(page, sent: list) -> dict:
     posted = [s for s in sent if s["key"].startswith("POST /api/chats/") and isinstance(s["body"], dict)]
     text = posted[-1]["body"].get("text", "") if posted else ""
     return {"shown": shown, "sent": "See the plan" in text and "plan.pdf" in text,
+            "appended": page.locator("[data-message]").count() > before}
+
+
+def _first_message(page, sent: list) -> dict:
+    before = page.locator("[data-message]").count()
+    page.fill("[data-composer]", "Hello CHIP")
+    page.click("[data-send]")
+    page.wait_for_timeout(500)
+    posted = [s for s in sent if s["key"].startswith("POST /api/chats/") and isinstance(s["body"], dict)]
+    return {"before": before, "sent": any(s["body"].get("text") == "Hello CHIP" for s in posted),
             "appended": page.locator("[data-message]").count() > before}
 
 
@@ -343,7 +358,7 @@ def _reached(task: str, run: dict) -> bool:
               if r["key"] == "POST /api/chats/general/messages" and isinstance(r["body"], dict)]
     if task == "attach_send":
         return run.get("pickers", 0) >= 1 and any("See the plan" in t and "plan.pdf" in t for t in posted)
-    if task == "send_message":
+    if task in ("send_message", "first_message"):
         return any("Hello CHIP" in t for t in posted)
     if task == "switch_chat":
         return any(r["key"] == "GET /api/chats/trip/messages" for r in run.get("requests", []))
@@ -421,6 +436,9 @@ def score(record: dict, output: dict | None, later: list[dict]) -> dict[str, flo
     elif check == "upload":
         upload = output.get("upload") or {}
         terms["upload"] = 1.0 if upload.get("shown") and upload.get("sent") and upload.get("appended") else 0.0
+    elif check == "first_message":
+        first = output.get("first_message") or {}
+        terms["first_message"] = 1.0 if first.get("before") == 0 and first.get("sent") and first.get("appended") else 0.0
     elif check == "animation":
         terms["animation"] = 1.0 if output.get("animated") else 0.0
     elif check == "tabs":
@@ -490,15 +508,21 @@ def _messages(rng: random.Random, count: int, me: str) -> list[dict]:
     return out
 
 
-def _api(rng: random.Random, role: str, posts: int = 6, messages: int = 9) -> dict:
+def _api(rng: random.Random, role: str, posts: int = 6, messages: int = 9, empty: bool = False) -> dict:
+    """The test data. ``empty``: a new install, with only the shared chat and nothing written yet."""
     me = {"user_id": f"google:{role}", "role": role, "name": role.title(), "email": f"{role}@example.com"}
     chats = [{"id": "general", "title": "General", "updated": _iso(0.1)}, {"id": "trip", "title": "Trip", "updated": _iso(5)}]
+    if empty:
+        posts, messages = 0, 0
+        chats = [{"id": "general", "title": "General", "updated": ""}]
     activity = [{"id": f"a{i}", "title": t, "detail": d, "time": _iso(i + 0.3)} for i, (t, d) in enumerate([
         ("Search reset emails", "Gmail search for reset emails"), ("Find grey hoodie colour", "Found Dark Shadow and Heather Frost"),
         ("Get hoodie checkout link", "Asked for approval before sharing the link"), ("Place book pre-order", "Placing the pre-order"),
         ("Order hoodie and article", "Added the article to the order"), ("Find exact grey hoodie", "Checked the order history")])]
     approvals = [{"id": f"r{i}", "title": t, "state": s, "time": _iso(i * 2 + 1)} for i, (t, s) in enumerate([
         ("Send this email in Gmail", "allowed"), ("Create a calendar event", "denied"), ("Continue on this checkout page?", "allowed")])]
+    if empty:
+        activity, approvals = [], []
     deny = {"status": 403, "body": {"error": "forbidden"}}
     message_list = _messages(rng, messages, me["user_id"])
     return {
@@ -531,10 +555,11 @@ def generate(seed: int) -> list[dict]:
             inputs["check"] = check
         cases.append({"input": inputs})
 
-    for page in ("/feed", "/chat", "/agent"):
-        for size in (PHONE, COMPUTER):
-            for role in ("owner", "guest"):
-                add(page, size, role)
+    for _ in range(2):   # twice, so the render gates have cases in every split
+        for page in ("/feed", "/chat", "/agent"):
+            for size in (PHONE, COMPUTER):
+                for role in ("owner", "guest"):
+                    add(page, size, role)
     # Every gate needs cases in every split (development, validation, holdout), and a
     # record goes to a split by its hash. So each check gets several cases per seed.
     either = lambda: rng.choice([PHONE, COMPUTER])
@@ -548,16 +573,19 @@ def generate(seed: int) -> list[dict]:
         add(rng.choice(["/agent", "/feed", "/chat"]), COMPUTER, check="tabs")
         add("/feed", either(), "owner", check="instructions")
         add("/feed", either(), "guest", check="instructions")
+        add("/chat", either(), rng.choice(["owner", "guest"]), check="first_message", empty=True)
         signed_out = {"page": rng.choice(["/feed", "/chat"]), "width": either()[0], "height": 812, "role": "guest",
                       "signed_out": True, "api": {"GET /api/me": {"status": 401, "body": {"error": "sign_in_required"}}}}
         cases.append({"input": signed_out})
     for _ in range(5):
         add("/feed", COMPUTER, check="scroll", posts=200)
         add("/chat", PHONE, check="scroll", messages=500)
+        # A new install: every page with nothing in it, and the first message.
+        add(rng.choice(["/feed", "/chat", "/agent"]), either(), rng.choice(["owner", "guest"]), empty=True)
     for name, spec in TASKS.items():
         size = either()
         inputs = {"page": spec["page"], "width": size[0], "height": size[1], "role": spec["role"], "task": name,
-                  "api": _api(rng, spec["role"])}
+                  "api": _api(rng, spec["role"], empty=spec.get("empty", False))}
         if spec.get("signed_out"):
             inputs["api"] = {"GET /api/me": {"status": 401, "body": {"error": "sign_in_required"}}}
         cases.append({"input": inputs})
