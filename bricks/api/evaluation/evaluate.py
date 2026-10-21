@@ -31,6 +31,9 @@ def _r(status, body):
     return {"status": status, "body": body}
 
 
+GENERAL = "general"   # the shared chat every install has
+
+
 def reference(inputs: dict, auth, store) -> tuple[dict, list[dict]]:
     """(expected reply, expected writes as (name, request))."""
     writes: list[dict] = []
@@ -101,7 +104,11 @@ def reference(inputs: dict, auth, store) -> tuple[dict, list[dict]]:
         if path == "/api/feed":
             return _r(200, {"posts": newest(scan("posts"), "time")}), writes
         if path == "/api/chats":
-            return _r(200, {"chats": newest(scan("chats"), "updated")}), writes
+            chats = scan("chats")
+            if not any(c["id"] == GENERAL for c in chats):
+                # The shared chat exists from the start, before anyone writes in it.
+                chats.append({"id": GENERAL, "title": "General", "updated": ""})
+            return _r(200, {"chats": newest(chats, "updated")}), writes
         name = path.rsplit("/", 1)[1]
         return _r(200, {name: newest(scan(name), "time")}), writes
 
@@ -139,7 +146,8 @@ def reference(inputs: dict, auth, store) -> tuple[dict, list[dict]]:
             t = text(inputs.get("body"))
             if t is None:
                 return _r(400, {"error": "text must be 1 to 4000 characters"}), writes
-        if not store({"op": "get", "collection": "chats", "key": chat_id}).get("ok"):
+        chat = store({"op": "get", "collection": "chats", "key": chat_id})
+        if not chat.get("ok") and chat_id != GENERAL:
             return _r(404, {"error": "not_found"}), writes
         if method == "GET":
             return _r(200, {"messages": scan("messages", f"{chat_id}/", 500)}), writes
@@ -148,6 +156,11 @@ def reference(inputs: dict, auth, store) -> tuple[dict, list[dict]]:
         request = {"op": "put", "collection": "messages", "key": key, "doc": message}
         write("sibling:store", request)
         store(request)
+        # The chat moves to the top of the list: its time is the newest message's.
+        title = (chat.get("doc") or {}).get("title") if chat.get("ok") else "General"
+        touch = {"op": "put", "collection": "chats", "key": chat_id, "doc": {"title": title or chat_id, "updated": now}}
+        write("sibling:store", touch)
+        store(touch)
         return _r(201, {"message": {**message, "id": key}}), writes
 
     if path == "/api/account":
@@ -304,6 +317,9 @@ def _data(rng: random.Random) -> dict:
     messages["trip/2026-10-20T10:00:00+00:00/google:x"] = {"author": "google:x", "name": "X", "text": "yo", "time": "2026-10-20T10:00:00+00:00"}
     activity = {f"a{i}": {"title": "Find hoodie", "time": rng.choice(times)} for i in range(rng.randint(0, 3))}
     approvals = {f"r{i}": {"title": "Send email", "state": "allowed", "time": rng.choice(times)} for i in range(rng.randint(0, 3))}
+    if rng.random() < 0.3:
+        # A new install: no chat and no message has been written yet.
+        chats, messages = {}, {}
     data = {"posts": posts, "chats": chats, "messages": messages, "activity": activity, "approvals": approvals}
     if rng.random() < 0.6:
         data["settings"] = {"feed_instructions": {"text": "Local NYC events", "updated_by": "google:o", "updated": times[0]}}
@@ -321,6 +337,7 @@ SESSIONS = {
 ROUTES = [("GET", "/api/me"), ("GET", "/api/feed"), ("GET", "/api/feed/instructions"),
           ("PUT", "/api/feed/instructions"), ("GET", "/api/chats"), ("GET", "/api/chats/general/messages"),
           ("POST", "/api/chats/general/messages"), ("POST", "/api/chats/nochat/messages"),
+          ("POST", "/api/chats/trip/messages"), ("GET", "/api/chats/trip/messages"),
           ("GET", "/api/account"), ("PUT", "/api/account"), ("POST", "/api/account"),
           ("GET", "/api/activity"), ("GET", "/api/approvals"), ("POST", "/api/invites"),
           ("DELETE", "/api/users/google:g"), ("POST", "/api/session"), ("DELETE", "/api/session"),
