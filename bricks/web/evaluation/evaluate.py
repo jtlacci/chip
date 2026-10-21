@@ -1,11 +1,20 @@
 """How the web brick is evaluated. Evaluation loop only.
 
-The runner builds the app, serves it on 127.0.0.1 and passes a Chromium
-browser. ``observe`` opens one page per case, answers every /api/* request
-from the case's fixture, and measures from outside the page where it can
-(Playwright) and inside it where it must (layout shift, frame timing).
-``score`` turns each observation into the terms of the spec's four score
-boxes (App, Feed, Chat, Action component).
+The runner builds the app, serves it on 127.0.0.1 with the app's headers
+and passes a browser (Google Chrome, headed). ``observe`` opens one page per
+case, answers every /api/* request from the case's fixture, and measures from
+outside the page where it can (Playwright, with real mouse and keyboard
+events) and inside it where it must (layout shift, frame timing). ``score``
+turns each observation into the terms of the spec's four score boxes (App,
+Feed, Chat, Action component).
+
+Two layers:
+- Checks: every case, every evaluation, the defect check too. Deterministic.
+- Tasks: a computer use agent (AGENT) does what a person does, from a task in
+  words, by looking at the screen and clicking. Each task runs three times; it
+  passes when two runs reach the goal. The goal is a fact the page gives (a
+  request the app sent, the page it shows), never the agent's opinion. The
+  defect check does not run tasks.
 
 The page elements are found by the data-* attributes in contract.py.
 """
@@ -30,7 +39,30 @@ GATES: tuple[tuple[str, str, float], ...] = (
     ("sub_nav", ">=", 1.0),               # Action component: the tabs work
     ("instructions", ">=", 1.0),          # Feed instructions: owners save, guests cannot
     ("sign_in_page", ">=", 1.0),          # no session: the sign-in page
+    ("tasks", ">=", 1.0),                 # a person can do each task (the agent, 2 of 3 runs)
 )
+
+AGENT = {"model": "claude-sonnet-5-5", "terms": ["tasks"]}
+RUNS = 3
+PLAN = {"name": "plan.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4 plan"}
+
+# Each task: what the agent is told, where it starts, who it is, and the goal (a fact).
+TASKS = {
+    "attach_send": {"page": "/chat", "role": "owner", "files": True,
+                    "task": "In the chat, attach a file to a new message, write 'See the plan', and send it."},
+    "send_message": {"page": "/chat", "role": "owner",
+                     "task": "Send the message 'Hello CHIP' in the chat."},
+    "switch_chat": {"page": "/chat", "role": "owner",
+                    "task": "Open the chat named Trip."},
+    "feed_instructions": {"page": "/feed", "role": "owner",
+                          "task": "Change the feed instructions to 'Only NYC events this weekend' and save them."},
+    "approvals": {"page": "/agent", "role": "owner",
+                  "task": "Open CHIP's approvals. Tell me the title of the newest approval, word for word."},
+    "go_to_chat": {"page": "/feed", "role": "guest",
+                   "task": "Go to the chat."},
+    "sign_in": {"page": "/feed", "role": "guest", "signed_out": True,
+                "task": "Sign in to the app."},
+}
 
 PNG = ("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'>"
        "<rect width='16' height='9' fill='%23c9b79c'/><rect y='6' width='16' height='3' fill='%238a7356'/></svg>")
@@ -116,7 +148,9 @@ def _path(url: str) -> str:
     return path.split("?", 1)[0]
 
 
-def observe(input, browser, base_url):
+def observe(input, browser, base_url, agent=None):
+    if "task" in input:
+        return _task(input, browser, base_url, agent)
     width, height = input["width"], input["height"]
     context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="no-preference")
     page = context.new_page()
@@ -196,8 +230,14 @@ def _nav(page, start: str) -> bool:
 
 
 def _upload(page, sent: list) -> dict:
-    page.set_input_files("input[data-attach]", files=[{"name": "plan.pdf", "mimeType": "application/pdf",
-                                                       "buffer": b"%PDF-1.4 plan"}])
+    # As a person does it: a mouse click on the button, then the file picker.
+    try:
+        with page.expect_file_chooser(timeout=3000) as chooser:
+            page.locator("[data-attach-button]").first.click(timeout=3000)
+    except Exception:
+        return {"shown": False, "sent": False, "appended": False, "picker": False}
+    chooser.value.set_files([PLAN])
+    page.wait_for_timeout(100)
     shown = page.locator('[data-attachment="plan.pdf"]').first.is_visible()
     before = page.locator("[data-message]").count()
     page.fill("[data-composer]", "See the plan")
@@ -234,6 +274,73 @@ def _instructions(page, sent: list, role: str) -> dict:
     return result
 
 
+def _task(input, browser, base_url, agent) -> dict:
+    """RUNS runs of one task, each on a new page; the facts each run leaves."""
+    spec = TASKS[input["task"]]
+    runs = []
+    for _ in range(RUNS):
+        context = browser.new_context(viewport={"width": input["width"], "height": input["height"]})
+        page = context.new_page()
+        requests, visits = [], []
+
+        def answer(route, request):
+            key = f"{request.method} {_path(request.url)}"
+            try:
+                body = request.post_data_json if request.method in ("POST", "PUT", "DELETE") else None
+            except Exception:
+                body = request.post_data
+            requests.append({"key": key, "body": body})
+            reply = input["api"].get(key, {"status": 404, "body": {"error": "not_found"}})
+            route.fulfill(status=reply["status"], content_type="application/json", body=json.dumps(reply["body"]))
+
+        def auth(route, request):
+            visits.append(_path(request.url))
+            route.fulfill(status=200, content_type="text/html", body="<!doctype html><h1>Google sign-in</h1>")
+
+        page.route("**/api/**", answer)
+        page.route("**/auth/**", auth)
+        run = {}
+        try:
+            page.goto(base_url + input["page"], wait_until="domcontentloaded")
+            page.wait_for_selector("body[data-ready]", state="attached", timeout=10000)
+            run = agent.run(page, spec["task"], files=[PLAN] if spec.get("files") else [])
+            page.wait_for_timeout(300)
+            run["path"] = _path(page.url)
+        except Exception as error:
+            run["failure"] = f"{type(error).__name__}: {str(error)[:300]}"
+        finally:
+            context.close()
+        run["requests"] = requests
+        run["visits"] = visits
+        runs.append(run)
+    return {"runs": runs}
+
+
+def _reached(task: str, run: dict) -> bool:
+    """Did this run reach the task's goal? Facts only."""
+    if run.get("failure") or run.get("status") == "error":
+        return False
+    sent = [r for r in run.get("requests", []) if r["key"].split(" ", 1)[0] in ("POST", "PUT", "DELETE")]
+    posted = [r["body"].get("text", "") for r in sent
+              if r["key"] == "POST /api/chats/general/messages" and isinstance(r["body"], dict)]
+    if task == "attach_send":
+        return run.get("pickers", 0) >= 1 and any("See the plan" in t and "plan.pdf" in t for t in posted)
+    if task == "send_message":
+        return any("Hello CHIP" in t for t in posted)
+    if task == "switch_chat":
+        return any(r["key"] == "GET /api/chats/trip/messages" for r in run.get("requests", []))
+    if task == "feed_instructions":
+        return any(r["key"] == "PUT /api/feed/instructions" and isinstance(r["body"], dict)
+                   and r["body"].get("text") == "Only NYC events this weekend" for r in sent)
+    if task == "approvals":
+        return "Send this email in Gmail" in run.get("text", "") and not sent
+    if task == "go_to_chat":
+        return run.get("path") == "/chat" and not sent
+    if task == "sign_in":
+        return "/auth/google" in run.get("visits", [])
+    return False
+
+
 # ---------------------------------------------------------------- scoring
 
 def build(record: dict) -> dict:
@@ -254,6 +361,11 @@ def _expected(inputs: dict) -> dict:
 
 def score(record: dict, output: dict | None, later: list[dict]) -> dict[str, float]:
     inputs = record["input"]
+    if "task" in inputs:
+        runs = (output or {}).get("runs") or []
+        reached = sum(1 for run in runs if _reached(inputs["task"], run))
+        ok = 1.0 if reached * 2 > RUNS else 0.0
+        return {"tasks": ok, f"task_{inputs['task']}": ok, "task_runs_reached": reached / RUNS, "correct": ok}
     if not isinstance(output, dict) or "failure" in output or "render_ms" not in output:
         return {"correct": 0.0, "console_clean": 0.0}
     want = _expected(inputs)
@@ -424,4 +536,11 @@ def generate(seed: int) -> list[dict]:
     for _ in range(5):
         add("/feed", COMPUTER, check="scroll", posts=200)
         add("/chat", PHONE, check="scroll", messages=500)
+    for name, spec in TASKS.items():
+        size = either()
+        inputs = {"page": spec["page"], "width": size[0], "height": size[1], "role": spec["role"], "task": name,
+                  "api": _api(rng, spec["role"])}
+        if spec.get("signed_out"):
+            inputs["api"] = {"GET /api/me": {"status": 401, "body": {"error": "sign_in_required"}}}
+        cases.append({"input": inputs})
     return cases
