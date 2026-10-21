@@ -1,0 +1,9 @@
+brick: model
+
+# The one place that names the model provider and the model. Callers send
+# messages only. Change the provider by adding an adapter in input/adapters/.
+provider: anthropic
+model: claude-sonnet-5-5
+
+# The API key is a file outside every record (CHIP_ANTHROPIC_KEY_FILE).
+# Never store credentials or secrets here.
