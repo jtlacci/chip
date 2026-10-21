@@ -282,6 +282,9 @@ def _task(input, browser, base_url, agent) -> dict:
         context = browser.new_context(viewport={"width": input["width"], "height": input["height"]})
         page = context.new_page()
         requests, visits = [], []
+        # The test data keeps what the app writes, as a real server does: a person (or the
+        # agent) who checks the result of a save must see it, or they save again and again.
+        api = json.loads(json.dumps(input["api"]))
 
         def answer(route, request):
             key = f"{request.method} {_path(request.url)}"
@@ -290,7 +293,8 @@ def _task(input, browser, base_url, agent) -> dict:
             except Exception:
                 body = request.post_data
             requests.append({"key": key, "body": body})
-            reply = input["api"].get(key, {"status": 404, "body": {"error": "not_found"}})
+            reply = api.get(key, {"status": 404, "body": {"error": "not_found"}})
+            _remember(api, key, body, reply)
             route.fulfill(status=reply["status"], content_type="application/json", body=json.dumps(reply["body"]))
 
         def auth(route, request):
@@ -314,6 +318,20 @@ def _task(input, browser, base_url, agent) -> dict:
         run["visits"] = visits
         runs.append(run)
     return {"runs": runs}
+
+
+def _remember(api: dict, key: str, body, reply: dict) -> None:
+    """After a write that succeeded, later reads show it."""
+    if reply.get("status", 500) >= 300 or not isinstance(body, dict):
+        return
+    if key == "PUT /api/feed/instructions" and isinstance(body.get("text"), str):
+        api["GET /api/feed/instructions"] = {"status": 200, "body": {"text": body["text"]}}
+    elif key.startswith("POST /api/chats/") and key.endswith("/messages"):
+        read = "GET " + key[len("POST "):]
+        message = (reply.get("body") or {}).get("message")
+        if isinstance(message, dict) and read in api:
+            message = dict(message, text=body.get("text", message.get("text")), id=f"{message.get('id')}-{len(api[read]['body'].get('messages', []))}")
+            api[read]["body"].setdefault("messages", []).append(message)
 
 
 def _reached(task: str, run: dict) -> bool:
