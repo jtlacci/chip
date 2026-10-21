@@ -38,3 +38,11 @@ label_horizon_seconds: 0
 # a fail. A trial fails when more than this share of its cases are out of
 # evidence, so a candidate cannot skip hard cases.
 max_out_of_evidence: 0.05
+
+# Limits on one evaluation run of one split (see the brick-runner README). A
+# change cannot raise its own budget: this file is human-only.
+budget:
+  max_cases: 270
+  max_seconds: 720
+  max_agent_calls: 400
+  max_agent_tokens: 3500000
