@@ -150,6 +150,30 @@ def reference(inputs: dict, auth, store) -> tuple[dict, list[dict]]:
         store(request)
         return _r(201, {"message": {**message, "id": key}}), writes
 
+    if path == "/api/account":
+        if method == "GET":
+            user, error = check("read_feed")
+            if error:
+                return error, writes
+            answer = store({"op": "get", "collection": "settings", "key": "account"})
+            doc = answer.get("doc", {}) if answer.get("ok") else {}
+            return _r(200, {"connected": bool(doc.get("email")), "email": doc.get("email", "")}), writes
+        if method == "PUT":
+            user, error = check("connect_account")
+            if error:
+                return error, writes
+            body = inputs.get("body") if isinstance(inputs.get("body"), dict) else {}
+            email, scopes = body.get("email"), body.get("scopes")
+            if (not isinstance(email, str) or "@" not in email or len(email) > 254
+                    or not isinstance(scopes, list) or not all(isinstance(x, str) for x in scopes)):
+                return _r(400, {"error": "email and scopes are required"}), writes
+            request = {"op": "put", "collection": "settings", "key": "account",
+                       "doc": {"email": email, "scopes": sorted(scopes), "connected": now}}
+            write("sibling:store", request)
+            store(request)
+            return _r(200, {"connected": True, "email": email}), writes
+        return _r(405, {"error": "method_not_allowed"}), writes
+
     if path == "/api/invites":
         if method != "POST":
             return _r(405, {"error": "method_not_allowed"}), writes
@@ -283,6 +307,8 @@ def _data(rng: random.Random) -> dict:
     data = {"posts": posts, "chats": chats, "messages": messages, "activity": activity, "approvals": approvals}
     if rng.random() < 0.6:
         data["settings"] = {"feed_instructions": {"text": "Local NYC events", "updated_by": "google:o", "updated": times[0]}}
+    if rng.random() < 0.5:
+        data.setdefault("settings", {})["account"] = {"email": "chip@example.com", "scopes": ["a"], "connected": times[0]}
     return data
 
 
@@ -295,6 +321,7 @@ SESSIONS = {
 ROUTES = [("GET", "/api/me"), ("GET", "/api/feed"), ("GET", "/api/feed/instructions"),
           ("PUT", "/api/feed/instructions"), ("GET", "/api/chats"), ("GET", "/api/chats/general/messages"),
           ("POST", "/api/chats/general/messages"), ("POST", "/api/chats/nochat/messages"),
+          ("GET", "/api/account"), ("PUT", "/api/account"), ("POST", "/api/account"),
           ("GET", "/api/activity"), ("GET", "/api/approvals"), ("POST", "/api/invites"),
           ("DELETE", "/api/users/google:g"), ("POST", "/api/session"), ("DELETE", "/api/session"),
           ("GET", "/api/session/scopes"), ("GET", "/api/nowhere"), ("DELETE", "/api/feed"), ("PATCH", "/api/chats/general/messages")]
@@ -313,7 +340,8 @@ def _case(rng: random.Random, method: str, path: str, who: str | None) -> dict:
         inputs["session_hash"] = _hash(who)
     if method in ("PUT", "POST"):
         inputs["body"] = rng.choice([{"text": "Show me NYC events"}, {"text": ""}, {"text": "x" * 4001}, {"role": "guest"},
-                                     {"role": "owner"}, {"role": "admin"}, {}])
+                                     {"role": "owner"}, {"role": "admin"}, {},
+                                     {"email": "chip@example.com", "scopes": ["b", "a"]}, {"email": "no-at", "scopes": []}])
     if path == "/api/invites":
         inputs["invite_hash"] = _hash("invite")
     if path == "/api/session" and method == "POST":
