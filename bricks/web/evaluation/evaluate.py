@@ -383,6 +383,8 @@ def _api(rng: random.Random, role: str, posts: int = 6, messages: int = 9) -> di
             "id": "general/new", "author": me["user_id"], "name": me["name"], "text": "See the plan\n- plan.pdf", "time": _iso(0)}}},
         "GET /api/activity": deny if role == "guest" else {"status": 200, "body": {"activity": activity}},
         "GET /api/approvals": deny if role == "guest" else {"status": 200, "body": {"approvals": approvals}},
+        "GET /api/account": {"status": 200, "body": rng.choice([{"connected": True, "email": "chip@example.com"},
+                                                               {"connected": False, "email": ""}])},
     }
 
 
@@ -403,18 +405,23 @@ def generate(seed: int) -> list[dict]:
         for size in (PHONE, COMPUTER):
             for role in ("owner", "guest"):
                 add(page, size, role)
-    add("/chat", rng.choice([PHONE, COMPUTER]), check="nav")
-    add("/feed", COMPUTER, check="scroll", posts=200)
-    add("/chat", PHONE, check="scroll", messages=500)
-    add("/chat", COMPUTER, check="typing")
-    add("/chat", PHONE, check="upload")
-    add("/chat", COMPUTER, check="upload")
-    add("/agent", PHONE, check="animation")
-    add("/agent", PHONE, check="tabs")
-    add("/feed", COMPUTER, check="tabs")
-    add("/feed", rng.choice([PHONE, COMPUTER]), "owner", check="instructions")
-    add("/feed", rng.choice([PHONE, COMPUTER]), "guest", check="instructions")
-    signed_out = {"page": "/feed", "width": 375, "height": 812, "role": "guest", "signed_out": True,
-                  "api": {"GET /api/me": {"status": 401, "body": {"error": "sign_in_required"}}}}
-    cases.append({"input": signed_out})
+    # Every gate needs cases in every split (development, validation, holdout), and a
+    # record goes to a split by its hash. So each check gets several cases per seed.
+    either = lambda: rng.choice([PHONE, COMPUTER])
+    for _ in range(8):
+        add("/chat", either(), check="nav")
+        add("/chat", COMPUTER, check="typing")
+        add("/chat", either(), check="upload")
+        add("/agent", PHONE, check="animation")
+        # On a phone the agent panel is its own page; on a computer it is beside every page.
+        add("/agent", PHONE, check="tabs")
+        add(rng.choice(["/agent", "/feed", "/chat"]), COMPUTER, check="tabs")
+        add("/feed", either(), "owner", check="instructions")
+        add("/feed", either(), "guest", check="instructions")
+        signed_out = {"page": rng.choice(["/feed", "/chat"]), "width": either()[0], "height": 812, "role": "guest",
+                      "signed_out": True, "api": {"GET /api/me": {"status": 401, "body": {"error": "sign_in_required"}}}}
+        cases.append({"input": signed_out})
+    for _ in range(5):
+        add("/feed", COMPUTER, check="scroll", posts=200)
+        add("/chat", PHONE, check="scroll", messages=500)
     return cases
