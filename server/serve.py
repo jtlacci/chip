@@ -7,7 +7,8 @@ to the api brick (the runtime records every brick input).
 Sign-in is Google (server/google.py): /auth/google signs a person in with
 the openid, email and profile scopes only; /auth/google/connect lets the admin
 connect CHIP's own Google account one time. CHIP_DEV=1 also adds /auth/dev for
-local work. Run it locally:
+local work. server/feed_refresh.py adds the feed's posts on a timer
+(CHIP_FEED_REFRESH=0 turns it off). Run it locally:
 
     (cd bricks/web/app && node build.js)
     CHIP_DEV=1 CHIP_DB=chip.db python3 server/serve.py --port 8000
@@ -37,6 +38,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bricks.api import run as api  # noqa: E402
 from bricks.auth import run as auth  # noqa: E402
 import google  # noqa: E402  (server/google.py)
+from feed_refresh import Refresher  # noqa: E402  (server/feed_refresh.py)
+
+REFRESHER = Refresher()
 
 DIST = ROOT / "bricks" / "web" / "app" / "dist"
 SESSION_COOKIE, INVITE_COOKIE, OAUTH_COOKIE = "chip_session", "chip_invite", "chip_oauth"
@@ -130,6 +134,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body["invite_url"] = f"/join/{token}"
         if path == "/api/session" and method == "DELETE":
             extra.append(("Set-Cookie", cookie(SESSION_COOKIE, "", 0)))
+        if path == "/api/feed/instructions" and method == "PUT" and answer["status"] == 200:
+            REFRESHER.wake()   # new instructions: the feed looks at every item again
         self.json_reply(answer["status"], body, extra)
 
     def join(self) -> None:
@@ -281,6 +287,8 @@ def main() -> None:
     if not (DIST / "index.html").is_file():
         sys.exit("build the app first: (cd bricks/web/app && node build.js)")
     print(f"CHIP on http://{args.host}:{args.port}" + (" (dev sign-in at /auth/dev)" if DEV else ""))
+    if os.environ.get("CHIP_FEED_REFRESH", "1") == "1":
+        REFRESHER.start()
     http.server.ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

@@ -42,10 +42,12 @@ install -d -m 755 -o chip -g chip "$APP"
 umask 077
 CLIENT_ID="$(ssm_get /chip/google/client-id)"
 ssm_get /chip/google/client-secret > "$CONF/google-client-secret"
+# The model key for CHIP's own model calls (the feed). Empty until you add /chip/anthropic/key.
+ssm_get /chip/anthropic/key > "$CONF/anthropic-key"
 TOKEN="$(ssm_get /chip/google/refresh-token)"
 if [ -n "$TOKEN" ] && [ "$TOKEN" != "None" ]; then printf '%s' "$TOKEN" > "$DATA/secrets/google-refresh-token"; fi
 unset TOKEN
-chown chip:chip "$CONF/google-client-secret" "$DATA/secrets"/* 2>/dev/null || true
+chown chip:chip "$CONF/google-client-secret" "$CONF/anthropic-key" "$DATA/secrets"/* 2>/dev/null || true
 cat > "$CONF/env" <<EOF
 CHIP_PUBLIC_URL=https://$HOST
 CHIP_SECURE=1
@@ -53,6 +55,7 @@ CHIP_DB=$DATA/chip.db
 CHIP_GOOGLE_CLIENT_ID=$CLIENT_ID
 CHIP_GOOGLE_CLIENT_SECRET_FILE=$CONF/google-client-secret
 CHIP_GOOGLE_TOKEN_FILE=$DATA/secrets/google-refresh-token
+CHIP_ANTHROPIC_KEY_FILE=$CONF/anthropic-key
 CHIP_SSM_REGION=$REGION
 BRICK_CAPTURE_DIR=$DATA/capture
 EOF
