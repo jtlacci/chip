@@ -11,6 +11,7 @@ A personal agent web app, built on [brick-framework](https://github.com/jtlacci/
 
 | `calendar` | CHIP's own Google Calendar, read side | No |
 | `gmail` | CHIP's own Gmail, read side; hides one-time codes and sign-in links | No |
+| `model` | One interface for every model provider; version 1 is Anthropic (Claude). The provider and the model are in `input/config.yml` | No |
 
 feed, agent, approvals and model come in later milestones.
 
