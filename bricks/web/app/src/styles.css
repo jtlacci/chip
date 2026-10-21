@@ -118,6 +118,8 @@ a { color: var(--accent); }
 .send { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: var(--ink); color: #fff; cursor: pointer; flex: none; }
 .send:disabled { opacity: .4; }
 .tray { display: flex; flex-wrap: wrap; gap: 6px; }
+.composer-note { margin: 0; padding: 0 6px; font-size: 13px; color: #b42318; }
+.composer-note:empty { display: none; }
 .tray:not(:empty) { padding: 4px 4px 8px; }
 .attachment { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--soft); font-size: 13px; overflow-wrap: anywhere; }
 .attachment-remove { display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; padding: 2px; color: var(--muted); }
