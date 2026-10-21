@@ -16,7 +16,7 @@ contract between the app and its evaluation, so they are human-only here:
 | [data-instructions-open] | the button that opens the feed instructions |
 | [data-instructions] dialog, [data-instructions-text], [data-instructions-save], [data-instructions-cancel] | the feed instructions dialog |
 | [data-message] | one chat message |
-| [data-composer], [data-send], input[data-attach], [data-attachment] | the message box, the send button, the file input, an attached file |
+| [data-composer], [data-send], input[data-attach], [data-attach-button], [data-attachment] | the message box, the send button, the file input, the button that opens the file picker, an attached file |
 | [data-tab="activity" / "approvals"], [data-activity], [data-approval] | the agent panel tabs and their items |
 | [data-signin] | the sign-in button, shown when there is no session |
 """

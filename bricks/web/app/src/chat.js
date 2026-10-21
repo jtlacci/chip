@@ -62,7 +62,7 @@ function composer(onSend) {
   return el("div", { class: "composer" }, [
     tray,
     el("div", { class: "composer-row" }, [
-      el("label", { class: "icon-button", for: "attach", "aria-label": "Attach a file" }, [icon("plus")]),
+      el("label", { class: "icon-button", for: "attach", "data-attach-button": "", "aria-label": "Attach a file" }, [icon("plus")]),
       files, text, send,
     ]),
   ]);

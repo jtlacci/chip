@@ -43,11 +43,8 @@ SESSION_COOKIE, INVITE_COOKIE, OAUTH_COOKIE = "chip_session", "chip_invite", "ch
 MAX_BODY = 65536
 SECURE = os.environ.get("CHIP_SECURE") == "1"
 DEV = os.environ.get("CHIP_DEV") == "1"
-HEADERS = {
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https:; style-src 'self'; frame-ancestors 'none'",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "same-origin",
-}
+# The app's security headers. The web evaluation sends the same file (human-only).
+HEADERS = json.loads((ROOT / "bricks" / "web" / "app" / "headers.json").read_text())
 
 
 def digest(token: str) -> str:

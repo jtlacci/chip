@@ -1,0 +1,5 @@
+{
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https:; style-src 'self'; frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "same-origin"
+}

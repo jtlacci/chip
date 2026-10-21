@@ -4,7 +4,9 @@
 # across folders. A path in no surface is human-only, and this file,
 # data.lock and contract.py are always human-only.
 surfaces:
-  implementation: [app/**]
+  # app/headers.json is in no surface, so it is human-only: the production
+  # server and the evaluation both send it, and only a human changes it.
+  implementation: [app/src/**, app/build.js, app/package.json, app/package-lock.json, app/AGENTS.md]
   evaluation: [evaluation/evaluate.py]
 code_loop: [implementation]
 eval_loop: [evaluation]
