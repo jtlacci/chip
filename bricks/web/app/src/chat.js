@@ -17,6 +17,7 @@ function composer(onSend) {
   const text = el("textarea", { "data-composer": "", rows: 1, maxlength: 4000, placeholder: "Message", "aria-label": "Message" });
   const files = el("input", { type: "file", "data-attach": "", class: "visually-hidden", id: "attach", multiple: true });
   const tray = el("div", { class: "tray" });
+  const note = el("p", { class: "composer-note", role: "status", "aria-live": "polite" });
   const send = el("button", { class: "send", type: "button", "data-send": "", "aria-label": "Send" }, [icon("send")]);
   const attached = [];
 
@@ -45,6 +46,8 @@ function composer(onSend) {
     send.disabled = true;
     const ok = await onSend(body);
     send.disabled = false;
+    // A send that fails says so: the text stays, so nothing is lost.
+    note.textContent = ok ? "" : "The message was not sent. Try again.";
     if (ok) {
       text.value = "";
       text.style.height = "auto";
@@ -60,6 +63,7 @@ function composer(onSend) {
     }
   });
   return el("div", { class: "composer" }, [
+    note,
     tray,
     el("div", { class: "composer-row" }, [
       el("label", { class: "icon-button", for: "attach", "data-attach-button": "", "aria-label": "Attach a file" }, [icon("plus")]),

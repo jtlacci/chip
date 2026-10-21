@@ -8,6 +8,7 @@ from ..input.adapters import auth, store
 CHAT_MESSAGES = re.compile(r"/api/chats/([A-Za-z0-9_-]{1,64})/messages")
 USER = re.compile(r"/api/users/([A-Za-z0-9:_.@-]{1,128})")
 UNAUTHORISED = ("no_session", "session_expired", "no_user")
+GENERAL = "general"   # the shared chat: it exists from the start, before anyone writes in it
 
 
 def reply(status: int, body: dict) -> BrickOutput:
@@ -86,7 +87,10 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
         if path == "/api/feed":
             return reply(200, {"posts": newest_first(scan("posts", ctx), "time")})
         if path == "/api/chats":
-            return reply(200, {"chats": newest_first(scan("chats", ctx), "updated")})
+            chats = scan("chats", ctx)
+            if not any(chat["id"] == GENERAL for chat in chats):
+                chats.append({"id": GENERAL, "title": "General", "updated": ""})
+            return reply(200, {"chats": newest_first(chats, "updated")})
         name = path.rsplit("/", 1)[1]
         return reply(200, {name: newest_first(scan(name, ctx), "time")})
 
@@ -122,7 +126,7 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
             if text is None:
                 return reply(400, {"error": "text must be 1 to 4000 characters"})
         chat = store.call({"op": "get", "collection": "chats", "key": chat_id}, ctx)
-        if not chat.get("ok"):
+        if not chat.get("ok") and chat_id != GENERAL:
             return reply(404, {"error": "not_found"})
         if method == "GET":
             messages = scan("messages", ctx, prefix=f"{chat_id}/", limit=MESSAGES_PAGE)
@@ -130,6 +134,10 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
         message = {"author": user["user_id"], "name": user.get("name", ""), "text": text, "time": data.get("now", "")}
         key = f"{chat_id}/{data.get('now', '')}/{user['user_id']}"
         store.call({"op": "put", "collection": "messages", "key": key, "doc": message}, ctx)
+        # The chat moves to the top of the list: its time is its newest message's.
+        title = (chat.get("doc") or {}).get("title") if chat.get("ok") else "General"
+        store.call({"op": "put", "collection": "chats", "key": chat_id,
+                    "doc": {"title": title or chat_id, "updated": data.get("now", "")}}, ctx)
         return reply(201, {"message": {**message, "id": key}})
 
     if path == "/api/account":
