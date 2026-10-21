@@ -72,19 +72,39 @@ export async function renderChat(root, me) {
   const page = el("section", { class: "page chat", "data-page": "chat" });
   const thread = el("div", { class: "thread", "aria-live": "polite" });
   const title = el("h1", { text: "Chat" });
-  const picker = el("div", { class: "chat-picker", hidden: true });
-  const chatsButton = el("button", { class: "pill", type: "button", "aria-expanded": "false",
-                                     onclick: () => {
-                                       picker.hidden = !picker.hidden;
-                                       chatsButton.setAttribute("aria-expanded", String(!picker.hidden));
-                                     } }, [icon("list"), "Chats"]);
+  // The chat list is a menu in the sticky header, so it opens where the button is,
+  // however far the thread is scrolled.
+  const picker = el("div", { class: "chat-picker", id: "chat-picker", role: "menu", hidden: true });
+  const chatsButton = el("button", { class: "pill", type: "button", "aria-expanded": "false", "aria-controls": "chat-picker",
+                                     onclick: () => setPicker(picker.hidden) }, [icon("list"), "Chats"]);
+
+  function setPicker(show) {
+    picker.hidden = !show;
+    chatsButton.setAttribute("aria-expanded", String(show));
+    if (show) picker.querySelector("button")?.focus();
+  }
+
+  // Escape and a click outside close the menu. The page is replaced when the user
+  // goes elsewhere, so each listener removes itself once its menu is gone.
+  function onKey(event) {
+    if (!picker.isConnected) return document.removeEventListener("keydown", onKey);
+    if (event.key === "Escape" && !picker.hidden) {
+      setPicker(false);
+      chatsButton.focus();
+    }
+  }
+  function onClick(event) {
+    if (!picker.isConnected) return document.removeEventListener("click", onClick);
+    if (!picker.hidden && !picker.contains(event.target) && !chatsButton.contains(event.target)) setPicker(false);
+  }
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("click", onClick);
   let current = null;
 
   async function open(chat) {
     current = chat;
     title.textContent = chat.title || "Chat";
-    picker.hidden = true;
-    chatsButton.setAttribute("aria-expanded", "false");
+    setPicker(false);
     const { status, data } = await get(`/api/chats/${encodeURIComponent(chat.id)}/messages`);
     thread.replaceChildren(...(status === 200 ? (data.messages || []).map((m) => message(m, me))
       : [el("p", { class: "empty", text: "This chat did not load. Reload the page to try again." })]));
@@ -104,11 +124,11 @@ export async function renderChat(root, me) {
     return true;
   }
 
-  page.append(el("header", { class: "page-head" }, [chatsButton, title]), picker, thread, composer(sendMessage));
+  page.append(el("header", { class: "page-head" }, [chatsButton, title, picker]), thread, composer(sendMessage));
   root.replaceChildren(page);
   const { status, data } = await get("/api/chats");
   const chats = status === 200 ? data.chats || [] : [];
-  picker.replaceChildren(...chats.map((chat) => el("button", { class: "chat-choice", type: "button", onclick: () => open(chat) },
+  picker.replaceChildren(...chats.map((chat) => el("button", { class: "chat-choice", type: "button", role: "menuitem", onclick: () => open(chat) },
                                                    [chat.title || chat.id])));
   if (chats.length) {
     await open(chats[0]);
