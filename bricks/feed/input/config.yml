@@ -1,0 +1,5 @@
+brick: feed
+
+# The feed's limits. Never store credentials or secrets here.
+max_items: 40
+max_posts: 8
