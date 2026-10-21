@@ -95,7 +95,10 @@ a { color: var(--accent); }
 /* ---------------------------------------------------------------- chat */
 .chat .page-head { justify-content: flex-start; }
 .chat .page-head h1 { font-size: 20px; }
-.chat-picker { display: flex; flex-direction: column; gap: 2px; padding: 6px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.chat-picker { position: absolute; top: calc(100% - 8px); left: 0; z-index: 3; display: flex; flex-direction: column; gap: 2px;
+               min-width: 220px; max-width: min(320px, 100%); max-height: 60vh; overflow-y: auto; padding: 6px;
+               background: var(--page); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
+.chat-picker[hidden] { display: none; }
 .chat-choice { text-align: left; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
 .chat-choice:hover { background: var(--soft); }
 .thread { display: flex; flex-direction: column; gap: 14px; padding-bottom: 110px; }
