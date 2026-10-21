@@ -19,18 +19,33 @@ function item(entry, kind) {
   ]);
 }
 
+function status(account, me) {
+  if (account && account.connected) {
+    return el("p", { class: "agent-status" }, [el("span", { class: "dot", "aria-hidden": "true" }), "Connected"]);
+  }
+  return el("div", { class: "agent-connect" }, [
+    el("p", { class: "agent-status off" }, [el("span", { class: "dot", "aria-hidden": "true" }), "Not connected to Google"]),
+    me.role === "admin"
+      ? el("a", { class: "button primary", href: "/auth/google/connect", "data-connect": "" }, ["Connect CHIP's Google account"])
+      : null,
+  ]);
+}
+
 export async function renderPanel(root, me, { asPage = false } = {}) {
   const tabs = el("div", { class: "tabs", role: "tablist" });
   const list = el("ul", { class: "log" });
+  const line = el("div");
   const panel = el("section", { class: asPage ? "page agent agent-page" : "agent", ...(asPage ? { "data-page": "agent" } : {}) }, [
     el("div", { class: "agent-card" }, [
       avatar(asPage ? 96 : 72),
       el("p", { class: "agent-name", text: "CHIP" }),
-      el("p", { class: "agent-status" }, [el("span", { class: "dot", "aria-hidden": "true" }), "Connected"]),
+      line,
     ]),
     tabs, list,
   ]);
   root.replaceChildren(panel);
+  const account = await get("/api/account");
+  line.replaceChildren(status(account.status === 200 ? account.data : null, me));
   if (me.role === "guest") {
     list.append(el("li", { class: "empty", text: "Owners can see what CHIP did and what it asked to do." }));
     return;

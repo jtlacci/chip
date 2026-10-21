@@ -9,7 +9,14 @@ A personal agent web app, built on [brick-framework](https://github.com/jtlacci/
 | `auth` | Roles (admin, owner, guest), sessions, 7-day one-use invites, the permission table | Yes |
 | `store` | Records in collections over one SQLite database | Yes |
 
-feed, agent, approvals, model, calendar and gmail come in later milestones.
+| `calendar` | CHIP's own Google Calendar, read side | No |
+| `gmail` | CHIP's own Gmail, read side; hides one-time codes and sign-in links | No |
+
+feed, agent, approvals and model come in later milestones.
+
+## Running CHIP
+
+CHIP runs at https://184-197-162-29.sslip.io on its own EC2 instance (`deploy/app/bootstrap.sh`): Caddy serves HTTPS, and a timer deploys `main` every 2 minutes. Sign-in is Google, with the openid, email and profile scopes only. The admin connects CHIP's own Google account once from the agent panel; the refresh token stays in a file on the server and in SSM, never in a brick.
 
 `server/serve.py` serves the app and turns each `/api/*` request into one api run. It mints session and invite tokens and passes only their hashes to the bricks. Run it locally:
 

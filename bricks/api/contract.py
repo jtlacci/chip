@@ -19,6 +19,8 @@ Routes (all JSON):
 | POST | /api/chats/<id>/messages | post_message | get chats/<id>, put messages/<id>/<now>/<user_id> |
 | GET | /api/activity | read_activity | scan activity |
 | GET | /api/approvals | read_activity | scan approvals |
+| GET | /api/account | read_feed | get settings/account -> {connected, email} |
+| PUT | /api/account | connect_account | put settings/account {email, scopes, connected: now} |
 | POST | /api/invites | auth op invite | - |
 | DELETE | /api/users/<user_id> | auth op remove | - |
 | POST | /api/session | auth op sign_in | - |

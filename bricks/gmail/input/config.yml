@@ -1,0 +1,4 @@
+brick: gmail
+
+# CHIP's Google settings come from the environment (see the adapter).
+# Never store credentials or secrets here.

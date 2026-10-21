@@ -132,6 +132,28 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
         store.call({"op": "put", "collection": "messages", "key": key, "doc": message}, ctx)
         return reply(201, {"message": {**message, "id": key}})
 
+    if path == "/api/account":
+        if method == "GET":
+            user, error = ask(data, "read_feed", ctx)
+            if error:
+                return error
+            answer = store.call({"op": "get", "collection": "settings", "key": "account"}, ctx)
+            doc = answer.get("doc", {}) if answer.get("ok") else {}
+            return reply(200, {"connected": bool(doc.get("email")), "email": doc.get("email", "")})
+        if method == "PUT":
+            user, error = ask(data, "connect_account", ctx)
+            if error:
+                return error
+            body = data.get("body") if isinstance(data.get("body"), dict) else {}
+            email, scopes = body.get("email"), body.get("scopes")
+            if (not isinstance(email, str) or "@" not in email or len(email) > 254
+                    or not isinstance(scopes, list) or not all(isinstance(x, str) for x in scopes)):
+                return reply(400, {"error": "email and scopes are required"})
+            doc = {"email": email, "scopes": sorted(scopes), "connected": data.get("now", "")}
+            store.call({"op": "put", "collection": "settings", "key": "account", "doc": doc}, ctx)
+            return reply(200, {"connected": True, "email": email})
+        return reply(405, {"error": "method_not_allowed"})
+
     if path == "/api/invites":
         if method != "POST":
             return reply(405, {"error": "method_not_allowed"})
