@@ -178,6 +178,41 @@ def _hermes_messages(messages: list[dict]) -> list[dict]:
     return out
 
 
+STEP_TITLES = {"mcp__chip__calendar_list": "Checked the calendar", "mcp__chip__gmail_search": "Searched the mail",
+               "mcp__chip__gmail_read": "Read an email", "mcp__chip__memory_search": "Searched the memory",
+               "mcp__chip__remember": "Saved to the memory", "web_search": "Searched the web",
+               "web_extract": "Read a web page"}
+
+
+def read_stream(response) -> tuple[str, list[dict]]:
+    """(the reply text, the tool steps) from a streamed chat completion with Hermes's tool progress events."""
+    text, steps, event = [], [], None
+    for raw in response:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if line.startswith("event:"):
+            event = line[6:].strip()
+        elif line.startswith("data:"):
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                data = json.loads(payload)
+            except ValueError:
+                data = None
+            if isinstance(data, dict) and event == "hermes.tool.progress":
+                if data.get("status") == "running":
+                    tool, label = str(data.get("tool", "")), str(data.get("label") or "")
+                    steps.append({"tool": tool, "label": "" if label == tool else label})   # a bare name says nothing more
+            elif isinstance(data, dict):
+                for choice in data.get("choices") or []:
+                    piece = (choice.get("delta") or {}).get("content")
+                    if isinstance(piece, str):
+                        text.append(piece)
+        elif not line:
+            event = None
+    return "".join(text), steps
+
+
 def hermes_answer(chat_id: str) -> dict:
     """CHIP's reply from the Hermes agent."""
     chat = store({"op": "get", "collection": "chats", "key": chat_id})
@@ -192,7 +227,8 @@ def hermes_answer(chat_id: str) -> dict:
     now = datetime.now(timezone.utc).replace(microsecond=0)
     system = HERMES_SYSTEM.replace("{title}", str(title)).replace("{now}", now.isoformat()) \
         .replace("{name}", str(last.get("name") or "someone")).replace("{role}", str(role))
-    body = {"model": "hermes-agent", "messages": [{"role": "system", "content": system}] + _hermes_messages(messages)}
+    body = {"model": "hermes-agent", "stream": True,
+            "messages": [{"role": "system", "content": system}] + _hermes_messages(messages)}
     key = Path(os.environ["CHIP_HERMES_KEY_FILE"]).read_text().strip()
     request = urllib.request.Request(os.environ.get("CHIP_HERMES_URL", "http://127.0.0.1:8642") + "/v1/chat/completions",
                                      data=json.dumps(body).encode(), method="POST",
@@ -200,11 +236,10 @@ def hermes_answer(chat_id: str) -> dict:
     started = datetime.now(timezone.utc)
     try:
         with urllib.request.urlopen(request, timeout=HERMES_TIMEOUT) as response:
-            data = json.load(response)
+            text, steps = read_stream(response)
     except Exception as exc:  # noqa: BLE001 -- the reason goes to the log
         return {"error": f"hermes: {type(exc).__name__}: {str(exc)[:300]}"}
-    choices = data.get("choices") or [{}]
-    text = str((choices[0].get("message") or {}).get("content") or "").strip()
+    text = text.strip()
     if not text:
         return {"error": "hermes: no reply text"}
     text, _ = hide(text)
@@ -215,9 +250,13 @@ def hermes_answer(chat_id: str) -> dict:
         return {"error": f"store: {saved.get('error')}"}
     store({"op": "put", "collection": "chats", "key": chat_id, "doc": {"title": title, "updated": done}})
     seconds = int((datetime.now(timezone.utc) - started).total_seconds())
-    store({"op": "put", "collection": "activity", "key": f"{done}-00",
-           "doc": {"title": "Answered with Hermes", "detail": f"{seconds} s", "time": done}})
-    return {"replied": True, "engine": "hermes", "seconds": seconds}
+    for index, step in enumerate(steps[:20]):
+        store({"op": "put", "collection": "activity", "key": f"{done}-{index:02d}",
+               "doc": {"title": STEP_TITLES.get(step["tool"], "Used a tool"),
+                       "detail": hide(step["label"])[0][:200], "time": done}})
+    store({"op": "put", "collection": "activity", "key": f"{done}-{min(len(steps), 20):02d}",
+           "doc": {"title": "Answered", "detail": f"{seconds} s, {len(steps)} steps", "time": done}})
+    return {"replied": True, "engine": "hermes", "seconds": seconds, "steps": len(steps)}
 
 
 class Replier:

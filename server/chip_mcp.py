@@ -16,6 +16,7 @@ import json
 import os
 import socket
 import sys
+import time
 
 PROTOCOL = "2025-06-18"
 TIMEOUT = 60
@@ -36,6 +37,18 @@ def _tools_call(request: dict) -> dict:
     return json.loads(data.decode() or "{}")
 
 
+def _wait_for_tools(seconds: int = 30) -> list:
+    """The tool list. At boot Hermes can start before the CHIP server's socket exists: wait for it."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            return _tools_call({"op": "list"}).get("tools", [])
+        except OSError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(1)
+
+
 def handle(message: dict) -> dict | None:
     """The answer to one JSON-RPC message, or None for a notification."""
     method, ident = message.get("method"), message.get("id")
@@ -49,7 +62,7 @@ def handle(message: dict) -> dict | None:
         result = {}
     elif method == "tools/list":
         try:
-            result = {"tools": _tools_call({"op": "list"}).get("tools", [])}
+            result = {"tools": _wait_for_tools()}
         except OSError as exc:
             return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32000, "message": f"CHIP is not reachable: {exc}"}}
     elif method == "tools/call":
