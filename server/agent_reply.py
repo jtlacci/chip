@@ -8,6 +8,11 @@ agent brick, and saves:
 - the facts to remember, through the memory brick;
 - each step, as an item in the activity log (the agent panel's Activity tab).
 
+When the agent's answer waits for web tasks ("pending"), the server runs each
+(at most 2) with the browser brick, through the web worker (CHIP_WEB_SOCKET),
+and asks the agent again with the results in "web". Without the web worker, a
+task's result says that the web is not set up.
+
 One chat is answered at a time, in order. It runs only when the model key file
 exists (CHIP_ANTHROPIC_KEY_FILE). Without CHIP's Google account, the snapshot has
 no calendar and no mail. This file is outside every brick, so the runner does
@@ -24,6 +29,7 @@ import sys
 import threading
 
 from bricks.agent import run as agent
+from bricks.browser import run as browser
 from bricks.calendar import run as calendar
 from bricks.gmail import run as gmail
 from bricks.memory import run as memory
@@ -34,7 +40,8 @@ MESSAGES = 30
 MAIL_QUERY = "newer_than:14d"
 READ_NEWEST = 5
 TITLES = {"calendar_list": "Checked the calendar", "gmail_search": "Searched the mail", "gmail_read": "Read an email",
-          "memory_search": "Searched the memory", "remember": "Saved to the memory"}
+          "memory_search": "Searched the memory", "remember": "Saved to the memory", "web_task": "Read the web"}
+MAX_WEB = 2
 
 
 def log(message: str) -> None:
@@ -80,8 +87,17 @@ def answer(chat_id: str) -> dict:
     if inputs is None:
         return {"skipped": "nothing to answer"}
     out = agent(inputs)
+    web_steps = []
+    if out.get("ok") and out.get("pending"):
+        inputs["web"] = []
+        for job in out["pending"][:MAX_WEB]:
+            result, step = web_task(job)
+            inputs["web"].append(result)
+            web_steps.append(step)
+        out = agent(inputs)
     if not out.get("ok"):
         return {"error": out.get("error")}
+    out["steps"] = web_steps + list(out.get("steps", []))
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     message = {"author": CHIP, "name": "CHIP", "text": out["text"], "time": now}
     saved = store({"op": "put", "collection": "messages", "key": f"{chat_id}/{now}/{CHIP}", "doc": message})
@@ -97,6 +113,26 @@ def answer(chat_id: str) -> dict:
                "doc": {"title": TITLES.get(step.get("tool"), "Used a tool"), "detail": str(step.get("summary", ""))[:200],
                        "time": now}})
     return {"replied": True, "steps": len(out.get("steps", [])), "remembered": len(out.get("remember", []))}
+
+
+def web_task(job: dict) -> tuple[dict, dict]:
+    """(the result for the agent, a step for the activity log)."""
+    args = job.get("input") if isinstance(job, dict) and isinstance(job.get("input"), dict) else {}
+    goal = str(args.get("goal", "")).strip()[:1000]
+    if not os.environ.get("CHIP_WEB_SOCKET"):
+        result = {"goal": goal, "answer": "The web is not set up on this server.", "sources": [], "stopped": "fail"}
+    else:
+        request = {"op": "task", "goal": goal or "(no goal)"}
+        if isinstance(args.get("start_url"), str) and args["start_url"]:
+            request["start_url"] = args["start_url"]
+        done = browser(request)
+        if done.get("ok"):
+            result = {"goal": goal, "answer": done.get("answer", ""), "sources": done.get("sources", []),
+                      "stopped": done.get("stopped", "fail")}
+        else:
+            result = {"goal": goal, "answer": f"The web task failed: {done.get('error', '')}"[:300], "sources": [],
+                      "stopped": "fail"}
+    return result, {"tool": "web_task", "summary": f"{goal[:120]} ({result['stopped']})"}
 
 
 class Replier:
