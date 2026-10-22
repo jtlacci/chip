@@ -62,18 +62,25 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
     task = (f"A shared assistant, CHIP, answered the last message of a group chat.\n\nChat:\n{chat}\n\n"
             f"What a good answer does: {inputs.get('_goal', 'answers the last message helpfully')}\n\n"
             f"CHIP's answer:\n{reply}\n\nFacts it saved to memory: {json.dumps(output.get('remember', []))}\n\n"
-            "Score from 0 to 10 how well the answer does what a good answer does. Answer with one whole number only.")
+            "Score from 0 to 10 how well the answer does what a good answer does.")
     facts = (f"The data CHIP had:\n{_snapshot(inputs)}\n\nChat:\n{chat}\n\nCHIP's answer:\n{reply}\n\n"
              "Score from 0 to 10 how accurate the answer is: 10 when every fact in it (names, days, times, places, "
              "what an email says) is in the data or the chat, 0 when it invents facts. An answer that says it does not "
-             "know is accurate. Answer with one whole number only.")
-    system = "You grade an assistant's answer. Answer with one whole number from 0 to 10 and nothing else."
-    return [{"system": system, "prompt": task, "max_tokens": 10}, {"system": system, "prompt": facts, "max_tokens": 10}]
+             "know is accurate.")
+    system = ("You grade an assistant's answer. Give your reasons in at most three short sentences. "
+              "Then write the score on the last line, in the form SCORE: N, where N is a whole number from 0 to 10.")
+    return [{"system": system, "prompt": task, "max_tokens": JUDGE_TOKENS},
+            {"system": system, "prompt": facts, "max_tokens": JUDGE_TOKENS}]
+
+
+JUDGE_TOKENS = 400
+SCORE = re.compile(r"SCORE:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
 def _number(text: str) -> float:
-    found = re.search(r"\d+(\.\d+)?", text or "")
-    return min(1.0, float(found.group(0)) / 10) if found else 0.0
+    """The judge's score from 0 to 1: the last 'SCORE: N' line. No score line gives 0."""
+    found = SCORE.findall(text or "")
+    return min(1.0, float(found[-1]) / 10) if found else 0.0
 
 
 def score(record: dict, output: dict | None, later: list[dict], judgments=(), calls=()) -> dict[str, float]:
