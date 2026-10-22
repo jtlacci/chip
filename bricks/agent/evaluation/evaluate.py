@@ -73,7 +73,7 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
             {"system": system, "prompt": facts, "max_tokens": JUDGE_TOKENS}]
 
 
-JUDGE_TOKENS = 400
+JUDGE_TOKENS = 2048
 SCORE = re.compile(r"SCORE:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
