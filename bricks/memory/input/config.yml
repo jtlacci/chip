@@ -1,0 +1,4 @@
+brick: memory
+
+# The memory database path comes from CHIP_MEMORY_DB (see the adapter).
+# Never store credentials or secrets here.
