@@ -15,8 +15,9 @@ A personal agent web app, built on [brick-framework](https://github.com/jtlacci/
 | `feed` | Chooses what the feed shows from the calendar, the mail and the instructions; the model writes the posts; every post is checked | No |
 | `memory` | CHIP's shared memory: the agent saves facts and finds them by words (SQLite full-text search); secrets are refused | No |
 | `agent` | CHIP's answer in chat: a tool loop on the model brick over a snapshot of the calendar, the mail and the memory | No |
+| `browser` | Reads the web for a task, read-only: the model chooses one typed action per step (open a link, back, more, look, answer, fail); GET only, a new browser profile for each page, no private addresses | No |
 
-feed, agent, approvals and model come in later milestones.
+Approvals come in a later milestone.
 
 ## Running CHIP
 
