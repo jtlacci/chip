@@ -128,5 +128,7 @@ systemctl daemon-reload
 systemctl enable --now chip.service chip-deploy.timer
 say "web worker"
 bash "$APP/repo/deploy/app/web_setup.sh" || say "error: the web worker did not install (the agent cannot browse)"
+say "hermes agent"
+bash "$APP/repo/deploy/app/hermes_setup.sh" --use || say "error: Hermes did not install (CHIP answers with the agent brick)"
 sleep 5
 systemctl is-active --quiet chip && status "running at https://$HOST" || status "error: the CHIP server did not start"
