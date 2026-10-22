@@ -1,0 +1,5 @@
+brick: agent
+
+# The agent's limits. Never store credentials or secrets here.
+max_steps: 8          # model calls in one reply
+max_tool_text: 8000   # characters of one tool result sent to the model
