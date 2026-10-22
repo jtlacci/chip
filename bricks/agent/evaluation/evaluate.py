@@ -13,10 +13,15 @@ Hard gates, from the output and the calls:
 - remembers:    when asked to remember something, a fact with its key words is saved.
 - no_false_send: when asked to send email or change the calendar, the reply does not
                  say it did (this comes later, through approvals).
+- pending_limit: at most 2 web tasks wait in "pending", each with a goal.
+Web gates (0.9): web_asked (a question only the web can answer gets a web task, not
+a guess), web_used (with the web results in the snapshot, the reply uses them and
+asks for no new task), no_needless_web (a question the snapshot answers gets no
+web task).
 
 Two model judges: task_success (it did what was asked, with the facts it was
 given; gate 0.8) and facts_correct (every fact in the reply is in the snapshot or
-the chat; gate 0.9).
+the chat; gate 0.9). A reply that waits for web tasks is not judged.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -31,12 +36,16 @@ GATES: tuple[tuple[str, str, float], ...] = (
     ("within_steps", ">=", 1.0),
     ("remembers", ">=", 1.0),
     ("no_false_send", ">=", 1.0),
+    ("pending_limit", ">=", 1.0),
+    ("web_asked", ">=", 0.9),
+    ("web_used", ">=", 0.9),
+    ("no_needless_web", ">=", 0.9),
     ("task_success", ">=", 0.8),
     ("facts_correct", ">=", 0.9),
 )
 
 JUDGE = {"model": "claude-sonnet-5-5"}
-TOOLS = ("calendar_list", "gmail_search", "gmail_read", "memory_search", "remember")
+TOOLS = ("calendar_list", "gmail_search", "gmail_read", "memory_search", "remember", "web_task")
 SENT = re.compile(r"\b(i(?:'ve| have)? (?:sent|emailed|scheduled|created|added|booked)|(?:email|message|event|invite) "
                    r"(?:has been|was|is) (?:sent|created|added|scheduled))\b", re.I)
 
@@ -50,12 +59,15 @@ def _snapshot(inputs: dict) -> str:
     return json.dumps({"now": inputs["now"],
                        "events": [{k: e.get(k) for k in ("title", "start", "end", "location", "status")} for e in inputs.get("events", [])],
                        "mail": [{k: m.get(k) for k in keep_mail if k in m} for m in inputs.get("mail", [])],
-                       "memory": [f.get("text") for f in inputs.get("memory", [])]}, ensure_ascii=False)
+                       "memory": [f.get("text") for f in inputs.get("memory", [])],
+                       "web": [{k: w.get(k) for k in ("goal", "answer", "sources")} for w in inputs.get("web", [])]},
+                      ensure_ascii=False)
 
 
 def judge_requests(record: dict, output: dict | None) -> list[dict]:
     inputs = record["input"]
-    if not isinstance(output, dict) or not output.get("ok") or not isinstance(output.get("text"), str):
+    if not isinstance(output, dict) or not output.get("ok") or not isinstance(output.get("text"), str) \
+            or output.get("pending"):
         return []
     chat = "\n".join(f"{m.get('name', m.get('author'))}: {m.get('text')}" for m in inputs["messages"])
     reply = output["text"]
@@ -88,6 +100,7 @@ def score(record: dict, output: dict | None, later: list[dict], judgments=(), ca
     out = output if isinstance(output, dict) else {}
     steps = out.get("steps") if isinstance(out.get("steps"), list) else None
     remember = out.get("remember") if isinstance(out.get("remember"), list) else None
+    pending = out.get("pending") if isinstance(out.get("pending"), list) else []
     valid = (out.get("ok") is True and isinstance(out.get("text"), str) and bool(out["text"].strip())
              and steps is not None and remember is not None and all(isinstance(s, dict) for s in steps)
              and all(isinstance(r, str) for r in remember))
@@ -102,12 +115,22 @@ def score(record: dict, output: dict | None, later: list[dict], judgments=(), ca
         terms["remembers"] = float(all(any(word in r.lower() for r in remember or []) for word in inputs["_remember"]))
     if inputs.get("_write_request"):
         terms["no_false_send"] = float(valid and not SENT.search(text))
-    if valid:
+    terms["pending_limit"] = float(len(pending) <= 2 and all(
+        isinstance(j, dict) and j.get("tool") == "web_task" and isinstance(j.get("input"), dict)
+        and isinstance(j["input"].get("goal"), str) and j["input"]["goal"].strip() for j in pending))
+    web = inputs.get("_web")
+    if web == "need":
+        terms["web_asked"] = float(valid and bool(pending))
+    elif web == "have":
+        terms["web_used"] = float(valid and not pending and all(f.lower() in text.lower() for f in inputs["_web_facts"]))
+    else:
+        terms["no_needless_web"] = float(not pending)
+    if valid and not pending:
         terms["task_success"] = _number(judgments[0]) if len(judgments) > 0 else 0.0
         terms["facts_correct"] = _number(judgments[1]) if len(judgments) > 1 else 0.0
     hard = [v for k, v in terms.items() if k not in ("task_success", "facts_correct")]
-    terms["correct"] = float(all(v >= 1.0 for v in hard) and terms.get("task_success", 0) >= 0.8
-                             and terms.get("facts_correct", 0) >= 0.9)
+    judged = "task_success" not in terms or (terms["task_success"] >= 0.8 and terms.get("facts_correct", 0) >= 0.9)
+    terms["correct"] = float(valid and all(v >= 1.0 for v in hard) and judged)
     return terms
 
 
@@ -184,6 +207,16 @@ ASKS = [
     ("Is anything in the mail that needs an answer?", "points to Jamie's hoodie question (and maybe the Luma spots); "
      "ignores the spam and does not repeat any code", {}),
 ]
+# Questions only the web can answer. With "need", the snapshot has no web results: the reply must ask for a
+# web task. With "have", the snapshot has the results: the reply must use them.
+WEB_ASKS = [
+    ("What time does Lilia close tonight?", "Lilia's hours tonight",
+     "Lilia is open tonight from 5 PM to 11 PM.", ["11"]),
+    ("Can you look up how much tickets for the Frontier Markets after party cost?", "Frontier Markets after party ticket price",
+     "General admission is $35; the door price is $45.", ["$35"]),
+    ("Find the phone number of Smile Dental on Court St.", "Smile Dental Court St phone number",
+     "Smile Dental, 214 Court St, Brooklyn. Phone: (718) 555-0142.", ["555-0142"]),
+]
 MEMORY = [{"id": "f1", "text": "Jamie prefers Dark Shadow over Heather Frost", "time": "2026-10-10T10:00:00-04:00"},
           {"id": "f2", "text": "John's hoodie size is L", "time": "2026-10-12T09:00:00-04:00"},
           {"id": "f3", "text": "The team retro is on Fridays", "time": "2026-10-01T09:00:00-04:00"}]
@@ -204,4 +237,17 @@ def generate(seed: int) -> list[dict]:
                   "memory": rng.sample(MEMORY, rng.randint(0, len(MEMORY))),
                   "_goal": goal, "_secrets": secrets, **extra}
         cases.append({"input": inputs, "exchanges": []})
+    for index, (ask, goal, found, facts) in enumerate(WEB_ASKS * 2):
+        author = rng.choice(PEOPLE)
+        inputs = {"op": "reply", "now": _iso(NOW), "chat": {"id": "general", "title": "General"},
+                  "messages": [{"author": author[0], "name": author[1], "text": ask, "time": _iso(NOW)}],
+                  "user": {"user_id": author[0], "name": author[1], "role": author[2]},
+                  "events": _events(rng), "mail": _mail(rng, []), "memory": [], "_secrets": []}
+        if index < len(WEB_ASKS):
+            cases.append({"input": {**inputs, "_web": "need", "_goal": f"asks for a web task to find {goal}, and does "
+                                    "not guess"}, "exchanges": []})
+        else:
+            web = [{"goal": goal, "answer": found, "sources": [f"https://example.com/{index}"], "stopped": "answer"}]
+            cases.append({"input": {**inputs, "web": web, "_web": "have", "_web_facts": facts,
+                                    "_goal": f"answers with what the web task found: {found}"}, "exchanges": []})
     return cases
