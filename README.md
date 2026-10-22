@@ -13,6 +13,7 @@ A personal agent web app, built on [brick-framework](https://github.com/jtlacci/
 | `gmail` | CHIP's own Gmail, read side; hides one-time codes and sign-in links | No |
 | `model` | One interface for every model provider; version 1 is Anthropic (Claude). The provider and the model are in `input/config.yml` | No |
 | `feed` | Chooses what the feed shows from the calendar, the mail and the instructions; the model writes the posts; every post is checked | No |
+| `memory` | CHIP's shared memory: the agent saves facts and finds them by words (SQLite full-text search); secrets are refused | No |
 
 feed, agent, approvals and model come in later milestones.
 
