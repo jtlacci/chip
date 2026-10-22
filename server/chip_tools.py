@@ -4,8 +4,8 @@ The CHIP server serves them on a Unix socket (CHIP_TOOLS_SOCKET). Hermes runs
 as another user and reaches them through server/chip_mcp.py, a small MCP server
 that forwards each call here, so the Google tokens never leave the CHIP server.
 
-Every text that leaves a tool goes through hide(): a one-time code near a code
-word, or a sign-in, verification or reset link, is replaced. The tools only read,
+Every text that leaves a tool goes through hide(), the redact brick: a one-time
+code near a code word, or a sign-in, verification or reset link, is replaced. The tools only read,
 except remember (a fact to the shared memory, refused when it holds a secret).
 Writes to Gmail or the calendar come later, through approvals.
 
@@ -18,7 +18,6 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 import json
 import os
-import re
 import socket
 import sys
 import threading
@@ -26,6 +25,7 @@ import threading
 from bricks.calendar import run as calendar
 from bricks.gmail import run as gmail
 from bricks.memory import run as memory
+from bricks.redact import run as redact
 
 MAX_TEXT = 8000
 MAX_REQUEST = 20_000
@@ -49,33 +49,12 @@ TOOLS = [
 
 # ------------------------------------------------------------------ secrets
 
-LINK = re.compile(r"https?://\S+", re.I)
-LINK_WORDS = ("reset", "password", "passwd", "verify", "verification", "confirm", "token", "magic", "signin", "sign-in",
-              "login", "log-in", "auth", "otp")
-CODE = re.compile(r"(?<![\w$.,:/-])(\d{4,8}|(?=[A-Z0-9]*\d[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![\w%:/-]|[.,]\d)")
-CODE_WORDS = ("code", "verification", "verify", "otp", "passcode", "pin", "one-time", "one time", "security", "login",
-              "sign-in", "sign in", "2fa", "two-factor", "password")
-
-
 def hide(text: str) -> tuple[str, int]:
-    """Replace one-time codes and sign-in or reset links. Returns (text, how many were hidden)."""
-    count = 0
-
-    def link(match: re.Match) -> str:
-        nonlocal count
-        if any(word in match.group(0).lower() for word in LINK_WORDS):
-            count += 1
-            return "[link hidden]"
-        return match.group(0)
-
-    text = LINK.sub(link, text)
-    lower = text.lower()
-    spans = [m.span() for m in CODE.finditer(text)
-             if any(w in lower[max(0, m.start() - 40):m.end() + 40] for w in CODE_WORDS)]
-    for start, end in reversed(spans):
-        text = text[:start] + "[code hidden]" + text[end:]
-        count += 1
-    return text, count
+    """The redact brick: one-time codes and sign-in or reset links replaced. Returns (text, how many)."""
+    out = redact({"op": "hide", "text": text[:200_000]})
+    if not out.get("ok"):
+        return "[text hidden]", 1   # fail closed
+    return out["text"], int(out.get("hidden", 0))
 
 
 def _clean(value):

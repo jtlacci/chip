@@ -1,0 +1,3 @@
+brick: redact
+
+# No configuration. Never store credentials or secrets here.
