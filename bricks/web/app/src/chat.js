@@ -109,10 +109,11 @@ export async function renderChat(root, me) {
   const typing = el("p", { class: "typing", "data-typing": "", role: "status", hidden: true }, ["CHIP is typing…"]);
 
   async function awaitReply(chat, since) {
-    // CHIP answers on the server, a few seconds later: check every 2 s, for 90 s at most.
+    // CHIP answers on the server, a few seconds later (a minute or two when it reads the web):
+    // check every 2 s, for 4 minutes at most.
     const mine = ++waiting;
     typing.hidden = false;
-    for (let i = 0; i < 45; i += 1) {
+    for (let i = 0; i < 120; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       if (mine !== waiting || !page.isConnected || current !== chat) return;
       const { status, data } = await get(`/api/chats/${encodeURIComponent(chat.id)}/messages`);
