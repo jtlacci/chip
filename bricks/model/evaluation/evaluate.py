@@ -11,6 +11,8 @@ live when input/config.yml changes the model):
   its token counts.
 - json: with "json", the output data is the one JSON value in the answer, or
   the request fails with "provider:" when there is none.
+- tools: with "tools", the tools are sent as given, and the output's
+  tool_calls and content are the answer's tool_use blocks and blocks.
 - provider_errors: when the provider fails, the output is an error that
   starts with "provider:", and nothing crashes.
 - rejects_invalid: an invalid request fails with "invalid:".
@@ -18,32 +20,96 @@ live when input/config.yml changes the model):
 
 import json
 import random
+import re
 
 GATES: tuple[tuple[str, str, float], ...] = (
     ("request_shape", ">=", 1.0),
     ("matches", ">=", 1.0),
     ("json", ">=", 1.0),
+    ("tools", ">=", 1.0),
     ("provider_errors", ">=", 1.0),
     ("rejects_invalid", ">=", 1.0),
 )
 
 MODEL = "claude-sonnet-5-5"   # the model the synthetic records were made with
-FIELDS = {"model", "max_tokens", "system", "messages"}
-STOPS = {"end_turn": "end", "stop_sequence": "end", "max_tokens": "max_tokens"}
+FIELDS = {"model", "max_tokens", "system", "messages", "tools"}
+STOPS = {"end_turn": "end", "stop_sequence": "end", "max_tokens": "max_tokens", "tool_use": "tool_use"}
+TOOLSETS = ("computer_toolset_20260801",)
+
+
+def _block_ok(block) -> bool:
+    if not isinstance(block, dict):
+        return False
+    kind = block.get("type")
+    if kind == "text":
+        return isinstance(block.get("text"), str)
+    if kind == "tool_use":
+        return isinstance(block.get("id"), str) and isinstance(block.get("name"), str) and isinstance(block.get("input", {}), dict)
+    if kind == "tool_result":
+        content = block.get("content", "")
+        return isinstance(block.get("tool_use_id"), str) and (isinstance(content, str) or (
+            isinstance(content, list) and all(isinstance(b, dict) and b.get("type") in ("text", "image") and _block_ok(b) for b in content)))
+    if kind == "image":
+        source = block.get("source")
+        return isinstance(source, dict) and source.get("type") == "base64" and source.get("media_type") in ("image/png", "image/jpeg") \
+            and isinstance(source.get("data"), str) and len(source["data"]) <= 5_000_000
+    return False
+
+
+def _size(content) -> int | None:
+    if isinstance(content, str):
+        return len(content) if content.strip() else None
+    if not isinstance(content, list) or not content or not all(_block_ok(b) for b in content):
+        return None
+    total = 0
+    for b in content:
+        if b["type"] == "text":
+            total += len(b["text"])
+        elif b["type"] == "tool_use":
+            total += len(json.dumps(b.get("input", {})))
+        elif b["type"] == "tool_result":
+            inner = b.get("content", "")
+            total += len(inner) if isinstance(inner, str) else sum(len(x.get("text", "")) for x in inner)
+    return total
+
+
+def _tools_ok(tools) -> bool:
+    if not isinstance(tools, list) or len(tools) > 32:
+        return False
+    names = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            return False
+        if "type" in tool:
+            if tool["type"] not in TOOLSETS or set(tool) - {"type", "configs"}:
+                return False
+            continue
+        name = tool.get("name")
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name) or name in names:
+            return False
+        if not isinstance(tool.get("description"), str) or not isinstance(tool.get("input_schema"), dict) \
+                or set(tool) - {"name", "description", "input_schema"}:
+            return False
+        names.add(name)
+    return True
 
 
 def _valid(inputs: dict) -> bool:
     messages = inputs.get("messages")
     if inputs.get("op") != "complete" or not isinstance(messages, list) or not 1 <= len(messages) <= 50:
         return False
+    total = 0
     for m in messages:
-        if not isinstance(m, dict) or m.get("role") not in ("user", "assistant") \
-                or not isinstance(m.get("content"), str) or not m["content"].strip():
+        size = _size(m.get("content")) if isinstance(m, dict) else None
+        if size is None or m.get("role") not in ("user", "assistant"):
             return False
+        total += size
     if messages[0]["role"] != "user" or messages[-1]["role"] != "user":
         return False
     system = inputs.get("system", "")
-    if not isinstance(system, str) or len(system) + sum(len(m["content"]) for m in messages) > 100_000:
+    if not isinstance(system, str) or len(system) + total > 100_000:
+        return False
+    if "tools" in inputs and (not _tools_ok(inputs["tools"]) or inputs.get("json")):
         return False
     tokens = inputs.get("max_tokens", 1024)
     if isinstance(tokens, bool) or not isinstance(tokens, int) or not 1 <= tokens <= 4096:
@@ -56,7 +122,8 @@ def _request_ok(inputs: dict, request) -> bool:
         return False
     want = [{"role": m["role"], "content": m["content"]} for m in inputs["messages"]]
     system_ok = request.get("system") == inputs["system"] if inputs.get("system") else "system" not in request
-    return (request.get("messages") == want and system_ok and request.get("max_tokens") == inputs.get("max_tokens", 1024)
+    tools_ok = request.get("tools") == inputs["tools"] if inputs.get("tools") else "tools" not in request
+    return (tools_ok and request.get("messages") == want and system_ok and request.get("max_tokens") == inputs.get("max_tokens", 1024)
             and isinstance(request.get("model"), str) and bool(request["model"]))
 
 
@@ -93,7 +160,14 @@ def score(record: dict, output: dict | None, later: list[dict], calls=()) -> dic
         text = _text(response)
         usage = response.get("usage") or {}
         expected_stop = STOPS.get(response.get("stop_reason"), "other")
-        if inputs.get("json"):
+        if inputs.get("tools"):
+            blocks = [b for b in response.get("content", []) if isinstance(b, dict)]
+            calls = [{"id": str(b.get("id", "")), "name": str(b.get("name", "")),
+                      "input": b.get("input") if isinstance(b.get("input"), dict) else {}}
+                     for b in blocks if b.get("type") == "tool_use"]
+            terms["tools"] = float(out.get("ok") is True and out.get("tool_calls") == calls and out.get("content") == blocks
+                                   and out.get("text") == text and out.get("stop") == expected_stop)
+        elif inputs.get("json"):
             try:
                 data = _one_json(text)
                 good = out.get("ok") is True and out.get("data") == data and out.get("text") == text
@@ -124,6 +198,8 @@ def _request(inputs: dict) -> dict:
                "messages": [{"role": m["role"], "content": m["content"]} for m in inputs["messages"]]}
     if inputs.get("system"):
         request["system"] = inputs["system"]
+    if inputs.get("tools"):
+        request["tools"] = inputs["tools"]
     return request
 
 
@@ -178,10 +254,66 @@ def _invalid_inputs(rng: random.Random) -> dict:
     ])
 
 
+TOOLS = [{"name": "calendar_list", "description": "List CHIP's events between two days.",
+          "input_schema": {"type": "object", "properties": {"days": {"type": "integer"}}}},
+         {"name": "gmail_search", "description": "Search CHIP's mail.",
+          "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}}},
+         {"name": "remember", "description": "Save a fact to CHIP's shared memory.",
+          "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}}}]
+PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+
+
+def _tool_case(rng: random.Random) -> dict:
+    tools = rng.sample(TOOLS, rng.randint(1, len(TOOLS)))
+    if rng.random() < 0.3:
+        tools = tools + [{"type": "computer_toolset_20260801"}]
+    messages = [{"role": "user", "content": "What is on Friday? " + rng.choice(WORDS)}]
+    if rng.random() < 0.6:
+        call = {"type": "tool_use", "id": f"toolu_{rng.randrange(10**6)}", "name": tools[0].get("name", "screenshot"),
+                "input": {"days": rng.randint(1, 7)}}
+        result = {"type": "tool_result", "tool_use_id": call["id"],
+                  "content": rng.choice(["Dinner with Sam at 8 PM", [{"type": "text", "text": "No events"}],
+                                         [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PIXEL}}]])}
+        messages += [{"role": "assistant", "content": [{"type": "text", "text": "Let me look."}, call]},
+                     {"role": "user", "content": [result]}]
+    inputs = {"op": "complete", "messages": messages, "tools": tools, "max_tokens": rng.choice([512, 1024])}
+    if rng.random() < 0.5:
+        blocks = [{"type": "text", "text": "Checking."},
+                  {"type": "tool_use", "id": f"toolu_{rng.randrange(10**6)}", "name": rng.choice(tools).get("name", "left_click"),
+                   "input": {"query": rng.choice(WORDS)}}]
+        if rng.random() < 0.3:
+            blocks.append({"type": "tool_use", "id": f"toolu_{rng.randrange(10**6)}", "name": "remember", "input": {"text": "Sam likes Lilia"}})
+        stop = "tool_use"
+    else:
+        blocks, stop = [{"type": "text", "text": "Friday you have dinner with Sam at 8 PM."}], "end_turn"
+    answer = _answer(rng, "")
+    answer.update(content=blocks, stop_reason=stop)
+    return {"input": inputs, "exchanges": [{"name": "external:anthropic", "request": _request(inputs), "response": answer}]}
+
+
+def _invalid_tools(rng: random.Random) -> dict:
+    good = _messages(rng)
+    return rng.choice([
+        {"op": "complete", "messages": good, "tools": [{"name": "bad name!", "description": "", "input_schema": {}}]},
+        {"op": "complete", "messages": good, "tools": [TOOLS[0], TOOLS[0]]},
+        {"op": "complete", "messages": good, "tools": [dict(TOOLS[0], cache=True)]},
+        {"op": "complete", "messages": good, "tools": [{"type": "bash_20250124"}]},
+        {"op": "complete", "messages": good, "tools": TOOLS * 11},
+        {"op": "complete", "messages": good, "tools": "calendar"},
+        {"op": "complete", "messages": good, "tools": [TOOLS[0]], "json": True},
+        {"op": "complete", "messages": [{"role": "user", "content": [{"type": "video"}]}]},
+        {"op": "complete", "messages": [{"role": "user", "content": [{"type": "tool_result", "content": "x"}]}]},
+        {"op": "complete", "messages": [{"role": "user", "content": [{"type": "image", "source": {"type": "url", "url": "http://x"}}]}]},
+        {"op": "complete", "messages": [{"role": "user", "content": []}]},
+    ])
+
+
 def generate(seed: int) -> list[dict]:
     rng = random.Random(seed)
     cases = [_valid_case(rng) for _ in range(24)]
     cases += [_valid_case(rng, json_mode=True) for _ in range(12)]
     cases += [_failed_case(rng) for _ in range(8)]
     cases += [{"input": _invalid_inputs(rng), "exchanges": []} for _ in range(14)]
+    cases += [_tool_case(rng) for _ in range(16)]
+    cases += [{"input": _invalid_tools(rng), "exchanges": []} for _ in range(10)]
     return cases
