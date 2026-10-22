@@ -38,7 +38,7 @@ JUDGE = {"model": "claude-sonnet-5-5"}
 JUDGE_SYSTEM = ("You check the feed of a shared assistant against its feed instructions. "
                 "Give your reasons in at most three short sentences. "
                 "Then write the score on the last line, in the form SCORE: N, where N is a whole number from 0 to 10.")
-JUDGE_TOKENS = 400
+JUDGE_TOKENS = 2048
 SCORE = re.compile(r"SCORE:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
@@ -124,7 +124,9 @@ def score(record: dict, output: dict | None, later: list[dict], judgments=(), ca
             for p in cards))
     if new and valid:
         terms["follows_instructions"] = _judged(judgments[0]) if judgments else 0.0
-    hard = [v for k, v in terms.items() if k != "follows_instructions"]
+        # Not a gate: the share of judge answers with a score line. A low share means the judge failed, not the feed.
+        terms["judge_answered"] = float(bool(judgments) and bool(SCORE.search(judgments[0] or "")))
+    hard = [v for k, v in terms.items() if k not in ("follows_instructions", "judge_answered")]
     terms["correct"] = float(all(v >= 1.0 for v in hard) and terms.get("follows_instructions", 1.0) >= 0.8)
     return terms
 
