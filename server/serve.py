@@ -39,8 +39,10 @@ from bricks.api import run as api  # noqa: E402
 from bricks.auth import run as auth  # noqa: E402
 import google  # noqa: E402  (server/google.py)
 from feed_refresh import Refresher  # noqa: E402  (server/feed_refresh.py)
+from agent_reply import Replier  # noqa: E402  (server/agent_reply.py)
 
 REFRESHER = Refresher()
+REPLIER = Replier()
 
 DIST = ROOT / "bricks" / "web" / "app" / "dist"
 SESSION_COOKIE, INVITE_COOKIE, OAUTH_COOKIE = "chip_session", "chip_invite", "chip_oauth"
@@ -136,6 +138,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             extra.append(("Set-Cookie", cookie(SESSION_COOKIE, "", 0)))
         if path == "/api/feed/instructions" and method == "PUT" and answer["status"] == 200:
             REFRESHER.wake()   # new instructions: the feed looks at every item again
+        if method == "POST" and answer["status"] == 201 and path.startswith("/api/chats/") and path.endswith("/messages"):
+            REPLIER.new_message(path.split("/")[3])   # CHIP answers in the same chat
         self.json_reply(answer["status"], body, extra)
 
     def join(self) -> None:
@@ -289,6 +293,8 @@ def main() -> None:
     print(f"CHIP on http://{args.host}:{args.port}" + (" (dev sign-in at /auth/dev)" if DEV else ""))
     if os.environ.get("CHIP_FEED_REFRESH", "1") == "1":
         REFRESHER.start()
+    if os.environ.get("CHIP_AGENT", "1") == "1":
+        REPLIER.start()
     http.server.ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 
