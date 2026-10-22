@@ -275,7 +275,7 @@ INVALID = [
 def generate(seed: int) -> list[dict]:
     rng = random.Random(seed)
     makers = [_restaurant, _venue, _shop]
-    cases = [_case(rng, seed * 100 + i, makers[i % len(makers)]) for i in range(12)]
+    cases = [_case(rng, seed * 100 + i, makers[i % len(makers)]) for i in range(20)]
     for i, bad in enumerate(rng.sample(INVALID, 3)):
         cases.append({"input": {**bad, "_invalid": True}, "exchanges": []})
     return cases
