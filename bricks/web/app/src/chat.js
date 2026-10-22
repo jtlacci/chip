@@ -104,12 +104,38 @@ export async function renderChat(root, me) {
   document.addEventListener("keydown", onKey);
   document.addEventListener("click", onClick);
   let current = null;
+  let shown = new Set();   // the IDs of the messages in the thread
+  let waiting = 0;         // the newest wait for CHIP's answer; a new chat or a new send ends the old one
+  const typing = el("p", { class: "typing", "data-typing": "", role: "status", hidden: true }, ["CHIP is typing…"]);
+
+  async function awaitReply(chat, since) {
+    // CHIP answers on the server, a few seconds later: check every 2 s, for 90 s at most.
+    const mine = ++waiting;
+    typing.hidden = false;
+    for (let i = 0; i < 45; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (mine !== waiting || !page.isConnected || current !== chat) return;
+      const { status, data } = await get(`/api/chats/${encodeURIComponent(chat.id)}/messages`);
+      if (status !== 200) continue;
+      const fresh = (data.messages || []).filter((m) => !shown.has(m.id));
+      for (const m of fresh) {
+        shown.add(m.id);
+        thread.append(message(m, me));
+      }
+      if (fresh.length) window.scrollTo(0, document.body.scrollHeight);
+      if (fresh.some((m) => m.author === "chip" && String(m.time) >= String(since))) break;
+    }
+    if (mine === waiting) typing.hidden = true;
+  }
 
   async function open(chat) {
     current = chat;
+    waiting += 1;
+    typing.hidden = true;
     title.textContent = chat.title || "Chat";
     setPicker(false);
     const { status, data } = await get(`/api/chats/${encodeURIComponent(chat.id)}/messages`);
+    shown = new Set(status === 200 ? (data.messages || []).map((m) => m.id) : []);
     thread.replaceChildren(...(status === 200 ? (data.messages || []).map((m) => message(m, me))
       : [el("p", { class: "empty", text: "This chat did not load. Reload the page to try again." })]));
     if (status === 200 && !(data.messages || []).length) {
@@ -123,12 +149,14 @@ export async function renderChat(root, me) {
     const { status, data } = await post(`/api/chats/${encodeURIComponent(current.id)}/messages`, { text });
     if (status !== 201) return false;
     thread.querySelector(".empty")?.remove();
+    shown.add(data.message.id);
     thread.append(message(data.message, me));
     window.scrollTo(0, document.body.scrollHeight);
+    awaitReply(current, data.message.time);
     return true;
   }
 
-  page.append(el("header", { class: "page-head" }, [chatsButton, title, picker]), thread, composer(sendMessage));
+  page.append(el("header", { class: "page-head" }, [chatsButton, title, picker]), thread, typing, composer(sendMessage));
   root.replaceChildren(page);
   const { status, data } = await get("/api/chats");
   const chats = status === 200 ? data.chats || [] : [];
