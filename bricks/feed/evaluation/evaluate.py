@@ -36,7 +36,16 @@ GATES: tuple[tuple[str, str, float], ...] = (
 
 JUDGE = {"model": "claude-sonnet-5-5"}
 JUDGE_SYSTEM = ("You check the feed of a shared assistant against its feed instructions. "
-                "Answer with one whole number from 0 to 10 and nothing else.")
+                "Give your reasons in at most three short sentences. "
+                "Then write the score on the last line, in the form SCORE: N, where N is a whole number from 0 to 10.")
+JUDGE_TOKENS = 2048
+SCORE = re.compile(r"SCORE:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+
+
+def _judged(text: str) -> float:
+    """The judge's score from 0 to 1: the last 'SCORE: N' line. No score line gives 0."""
+    found = SCORE.findall(text or "")
+    return min(1.0, float(found[-1]) / 10) if found else 0.0
 
 
 def _time(value):
@@ -71,9 +80,12 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
     inputs = record["input"]
     if not _new_sources(inputs) or not isinstance(output, dict) or not output.get("ok"):
         return []
-    items = [{"source": f"calendar:{e['id']}", "event": e.get("title"), "start": e.get("start"), "location": e.get("location")}
+    # The judge sees every field the feed gets, so a true fact (an end time, a mail date) is not called invented.
+    items = [{"source": f"calendar:{e['id']}", "event": e.get("title"), "start": e.get("start"), "end": e.get("end"),
+              "all_day": e.get("all_day"), "location": e.get("location")}
              for e in inputs.get("events", []) if f"calendar:{e['id']}" in _new_sources(inputs)]
-    items += [{"source": f"gmail:{m['id']}", "from": m.get("from"), "subject": m.get("subject"), "snippet": m.get("snippet")}
+    items += [{"source": f"gmail:{m['id']}", "from": m.get("from"), "subject": m.get("subject"), "date": m.get("date"),
+               "snippet": m.get("snippet")}
               for m in inputs.get("mail", []) if f"gmail:{m['id']}" in _new_sources(inputs)]
     posts = [{k: p.get(k) for k in ("source", "title", "body")} for p in output.get("posts", []) if isinstance(p, dict)]
     prompt = (f"Feed instructions: {inputs.get('instructions') or '(none: show what is happening)'}\n\n"
@@ -82,7 +94,7 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
               "Score the posts from 0 to 10: 10 when the posts are about the items the instructions want, "
               "leave out the items the instructions do not want, and are accurate to their items, with no invented facts. "
               "No posts is right only when the instructions want none of the items.")
-    return [{"system": JUDGE_SYSTEM, "prompt": prompt, "max_tokens": 10}]
+    return [{"system": JUDGE_SYSTEM, "prompt": prompt, "max_tokens": JUDGE_TOKENS}]
 
 
 def score(record: dict, output: dict | None, later: list[dict], judgments=(), calls=()) -> dict[str, float]:
@@ -114,9 +126,10 @@ def score(record: dict, output: dict | None, later: list[dict], judgments=(), ca
             and any(r.get("title") == events.get(p["source"], {}).get("title") for r in p["card"].get("rows", []))
             for p in cards))
     if new and valid:
-        number = re.search(r"\d+(\.\d+)?", judgments[0]) if judgments else None
-        terms["follows_instructions"] = min(1.0, float(number.group(0)) / 10) if number else 0.0
-    hard = [v for k, v in terms.items() if k != "follows_instructions"]
+        terms["follows_instructions"] = _judged(judgments[0]) if judgments else 0.0
+        # Not a gate: the share of judge answers with a score line. A low share means the judge failed, not the feed.
+        terms["judge_answered"] = float(bool(judgments) and bool(SCORE.search(judgments[0] or "")))
+    hard = [v for k, v in terms.items() if k not in ("follows_instructions", "judge_answered")]
     terms["correct"] = float(all(v >= 1.0 for v in hard) and terms.get("follows_instructions", 1.0) >= 0.8)
     return terms
 

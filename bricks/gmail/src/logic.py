@@ -11,7 +11,7 @@ ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 URL = re.compile(r"https?://[^\s<>\"')\]]+")
 LINK_WORDS = ("reset", "password", "passwd", "verify", "verification", "confirm", "token", "magic", "signin",
               "sign-in", "sign_in", "login", "log-in", "auth", "otp", "passcode", "2fa", "mfa", "code=")
-CODE = re.compile(r"(?<![\w$.,:/-])(\d{4,8}|(?=[A-Z0-9]*\d[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![\w,%:/-]|\.\d)")
+CODE = re.compile(r"(?<![\w$.,:/-])(\d{4,8}|(?=[A-Z0-9]*\d[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![\w%:/-]|[.,]\d)")
 CODE_WORDS = ("code", "verification", "verify", "otp", "passcode", "pin", "one-time", "one time", "security",
               "2fa", "two-factor", "two factor", "login", "log in", "sign in", "sign-in")
 YEAR = re.compile(r"(19|20)\d\d")
