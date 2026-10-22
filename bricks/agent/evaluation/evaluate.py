@@ -59,7 +59,7 @@ def _snapshot(inputs: dict) -> str:
     return json.dumps({"now": inputs["now"],
                        "events": [{k: e.get(k) for k in ("title", "start", "end", "location", "status")} for e in inputs.get("events", [])],
                        "mail": [{k: m.get(k) for k in keep_mail if k in m} for m in inputs.get("mail", [])],
-                       "memory": [f.get("text") for f in inputs.get("memory", [])],
+                       "memory": [{"text": f.get("text"), "saved": f.get("time")} for f in inputs.get("memory", [])],
                        "web": [{k: w.get(k) for k in ("goal", "answer", "sources")} for w in inputs.get("web", [])]},
                       ensure_ascii=False)
 
@@ -76,9 +76,12 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
             f"CHIP's answer:\n{reply}\n\nFacts it saved to memory: {json.dumps(output.get('remember', []))}\n\n"
             "Score from 0 to 10 how well the answer does what a good answer does.")
     facts = (f"The data CHIP had:\n{_snapshot(inputs)}\n\nChat:\n{chat}\n\nCHIP's answer:\n{reply}\n\n"
+             f"Facts CHIP saved to its memory with this answer: {json.dumps(output.get('remember', []))}\n\n"
+             f"{ABILITIES}\n\n"
              "Score from 0 to 10 how accurate the answer is: 10 when every fact in it (names, days, times, places, "
              "what an email says) is in the data or the chat, 0 when it invents facts. An answer that says it does not "
-             "know is accurate.")
+             "know is accurate. What CHIP says about its own abilities is accurate when it matches the list above, and "
+             "\"I saved that\" is accurate when the fact is in the saved facts.")
     system = ("You grade an assistant's answer. Give your reasons in at most three short sentences. "
               "Then write the score on the last line, in the form SCORE: N, where N is a whole number from 0 to 10.")
     return [{"system": system, "prompt": task, "max_tokens": JUDGE_TOKENS},
@@ -86,6 +89,9 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
 
 
 JUDGE_TOKENS = 2048
+ABILITIES = ("What CHIP can do: read its calendar, its mail and its shared memory; save facts to the memory; read public "
+             "web pages (a web task). What it cannot do yet: send email or change the calendar (that comes later, "
+             "with approvals).")
 SCORE = re.compile(r"SCORE:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
