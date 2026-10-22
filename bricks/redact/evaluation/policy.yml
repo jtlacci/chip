@@ -1,0 +1,28 @@
+# Evaluation policy for this brick. Human-only: a change needs human approval.
+
+# Which paths each loop may change, relative to the brick folder. A path in no
+# surface is human-only, and this file, data.lock and contract.py are always human-only.
+surfaces:
+  implementation: [src/**, input/config.yml, runner/**, __main__.py]
+  evaluation: [evaluation/evaluate.py]
+code_loop: [implementation]
+eval_loop: [evaluation]
+
+split:
+  kind: hash
+  validation: 0.2
+  holdout: 0.2
+  min_holdout: 10
+
+selection:
+  method: best
+  metric: correct
+
+seeds: [1, 2, 3]
+label_horizon_seconds: 0
+max_out_of_evidence: 0.0
+
+# A pure brick makes no calls: the evaluation is fast and free.
+budget:
+  max_cases: 200
+  max_seconds: 120
