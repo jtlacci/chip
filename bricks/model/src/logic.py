@@ -3,8 +3,14 @@
 import json
 import re
 
-from ..contract import (BLOCKS, DEFAULT_TOKENS, MAX_CHARS, MAX_IMAGE, MAX_MESSAGES, MAX_TOKENS, MAX_TOOLS, ROLES,
-                        TOOLSETS, BrickInput, BrickOutput)
+from ..contract import DEFAULT_TOKENS, MAX_CHARS, MAX_MESSAGES, MAX_TOKENS, ROLES, BrickInput, BrickOutput
+
+# The contract documents these. They are here too, because the evaluation runner
+# takes contract.py from the base commit (it is human-only).
+BLOCKS = ("text", "tool_use", "tool_result", "image")
+MAX_TOOLS = 32
+MAX_IMAGE = 5_000_000
+TOOLSETS = ("computer_toolset_20260801",)
 from ..input.adapters import anthropic
 
 PROVIDERS = {"anthropic": anthropic.complete}
