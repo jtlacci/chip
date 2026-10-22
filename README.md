@@ -21,7 +21,7 @@ Approvals come in a later milestone.
 
 ## Running CHIP
 
-CHIP runs at https://184-197-162-29.sslip.io on its own EC2 instance (`deploy/app/bootstrap.sh`): Caddy serves HTTPS, and a timer deploys `main` every 2 minutes. Sign-in is Google, with the openid, email and profile scopes only. The admin connects CHIP's own Google account once from the agent panel; the refresh token stays in a file on the server and in SSM, never in a brick.
+CHIP runs at https://184-197-162-29.sslip.io on its own EC2 instance (`deploy/app/bootstrap.sh`): Caddy serves HTTPS, and a timer deploys `main` every 2 minutes. The browser brick's browser runs in a separate service, `chip-web` (`server/web_worker.py`, set up by `deploy/app/web_setup.sh`), as a user that can read none of CHIP's data; the kernel blocks its traffic to private, loopback and metadata addresses. Sign-in is Google, with the openid, email and profile scopes only. The admin connects CHIP's own Google account once from the agent panel; the refresh token stays in a file on the server and in SSM, never in a brick.
 
 `server/serve.py` serves the app and turns each `/api/*` request into one api run. It mints session and invite tokens and passes only their hashes to the bricks. Run it locally:
 
