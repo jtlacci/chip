@@ -1,11 +1,11 @@
 """The web: a browser that opens one URL (GET only) and gives back the page, or a screenshot of it.
 
-Each call runs this file as a new process (``python web.py``, the request as
-JSON on stdin), so each call has a new, empty browser profile. CHIP_WEB_COMMAND
-replaces the command, for example to run it as a separate Linux user that can
-read none of CHIP's files:
-
-    CHIP_WEB_COMMAND="sudo -n -u chipweb /opt/chip-web/bin/python /opt/chip/bricks/browser/input/adapters/web.py"
+On the server, CHIP_WEB_SOCKET names the Unix socket of the web worker
+(server/web_worker.py), a separate service that runs as a user who can read none
+of CHIP's files, and whose network access to private, loopback, link-local and
+metadata addresses the kernel blocks. Without it (development), the adapter runs
+this file itself. Either way each call is a new process (``python web.py``, the
+request as JSON on stdin), so each call has a new, empty browser profile.
 
 The browser blocks every request that is not GET, every scheme but http, https,
 data and blob, and every host that resolves to an address that is not global
@@ -19,7 +19,6 @@ import ipaddress
 import json
 import os
 from pathlib import Path
-import shlex
 import socket
 import subprocess
 import sys
@@ -36,12 +35,27 @@ def call(request: dict, ctx: dict) -> dict:
 
 
 def _live(request: dict) -> dict:
-    command = shlex.split(os.environ.get("CHIP_WEB_COMMAND", "")) or [sys.executable, str(Path(__file__).resolve())]
+    path = os.environ.get("CHIP_WEB_SOCKET")
+    if path:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(TIMEOUT + 15)
+            conn.connect(path)
+            conn.sendall(json.dumps(request).encode() + b"\n")
+            conn.shutdown(socket.SHUT_WR)
+            data = b"".join(iter(lambda: conn.recv(65536), b""))
+        return json.loads(data.decode() or '{"error": "the web worker gave no answer"}')
+    return run_worker(request, [sys.executable, str(Path(__file__).resolve())])
+
+
+def run_worker(request: dict, command: list[str]) -> dict:
+    """Run the browser process for one request (the web worker calls this too)."""
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/tmp", "LANG": "C.UTF-8"}
-    for name in ("PLAYWRIGHT_BROWSERS_PATH",):
-        if name in os.environ:
-            env[name] = os.environ[name]
-    done = subprocess.run(command, input=json.dumps(request), capture_output=True, text=True, timeout=TIMEOUT, env=env)
+    if "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
+        env["PLAYWRIGHT_BROWSERS_PATH"] = os.environ["PLAYWRIGHT_BROWSERS_PATH"]
+    try:
+        done = subprocess.run(command, input=json.dumps(request), capture_output=True, text=True, timeout=TIMEOUT, env=env)
+    except subprocess.TimeoutExpired:
+        return {"error": "the page took too long"}
     if done.returncode != 0:
         return {"error": f"browser failed: {done.stderr.strip()[-300:]}"}
     return json.loads(done.stdout)
