@@ -10,21 +10,29 @@ from ..input.adapters import model
 
 SYSTEM = """You write CHIP's feed: short posts for the people who share CHIP's calendar and mail.
 
-Rules:
-- Write only about the items you are given. One post is about one item.
-- Give each post the item's "source" exactly as given.
-- Follow the feed instructions: leave out the items they do not want. An empty list is fine.
+Decide, item by item, if the feed instructions want it (in "decisions"). Then write a post for each item you keep.
+
+Rules for the decision:
+- The instructions decide. When they name a kind of item (work, personal, local events, this weekend),
+  keep every item of that kind and no other item.
+- Use "today" and each item's "when" for time words: "this weekend" is the coming Saturday and Sunday.
+- A promotion or newsletter is mail from a shop, a brand or a mailing list, not from a person.
+- With no limit in the instructions, keep every item.
+
+Rules for the posts:
+- One post is about one item. Give each post the item's "source" exactly as given.
 - Be accurate: use only facts from the item. Do not invent times, places or people.
 - Never copy a one-time code, a password, or a sign-in, verification or password-reset link.
 - A title is one line. A body is one to three short sentences.
 
-Answer with one JSON object and nothing else:
-{"posts": [{"source": "...", "title": "...", "body": "...", "icon": "one emoji"}]}"""
+Answer with one JSON object and nothing else. Write no text before or after it:
+{"decisions": [{"source": "...", "keep": true, "why": "a few words"}],
+ "posts": [{"source": "...", "title": "...", "body": "...", "icon": "one emoji"}]}"""
 
 LINK = re.compile(r"https?://\S+", re.I)
 LINK_WORDS = ("reset", "password", "passwd", "verify", "verification", "confirm", "token", "magic", "signin", "sign-in",
               "login", "log-in", "auth", "otp")
-CODE = re.compile(r"(?<![\w$.,:/-])(\d{4,8}|(?=[A-Z0-9]*\d[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![\w,%:/-]|\.\d)")
+CODE = re.compile(r"(?<![\w$.,:/-])(\d{4,8}|(?=[A-Z0-9]*\d[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![\w%:/-]|[.,]\d)")
 CODE_WORDS = ("code", "verification", "verify", "otp", "passcode", "pin", "one-time", "one time", "security", "login",
               "sign-in", "sign in", "2fa", "two-factor")
 
@@ -84,6 +92,7 @@ def _items(inputs: dict, now: datetime, limit: int) -> tuple[list[dict], list[di
             skipped.append({"source": source, "reason": "past"})
         else:
             item = {"source": source, "type": "event", "title": str(event.get("title", ""))[:200],
+                    "when": _when(event.get("start"), now.tzinfo, bool(event.get("all_day"))),
                     "start": event.get("start", ""), "end": event.get("end", ""), "all_day": bool(event.get("all_day")),
                     "location": str(event.get("location", ""))[:200]}
             items.append(item)
@@ -97,6 +106,7 @@ def _items(inputs: dict, now: datetime, limit: int) -> tuple[list[dict], list[di
             continue
         item = {"source": source, "type": "email", "from": str(message.get("from", ""))[:200],
                 "subject": str(message.get("subject", ""))[:300], "date": message.get("date", ""),
+                "when": _when(message.get("date"), now.tzinfo),
                 "snippet": str(message.get("snippet", ""))[:500]}
         items.append(item)
         by_source[source] = item
@@ -110,6 +120,30 @@ def _items(inputs: dict, now: datetime, limit: int) -> tuple[list[dict], list[di
 
 def _clock(moment: datetime) -> str:
     return moment.strftime("%I:%M %p").lstrip("0")
+
+
+def _when(value, zone, all_day: bool = False) -> str:
+    """A time as words in the zone of "now", for example "Saturday, Oct 24, 7:00 PM"."""
+    moment = _time(value)
+    if moment is None:
+        return ""
+    if all_day:
+        return moment.strftime("%A, %b %d").replace(" 0", " ") + ", all day"
+    moment = moment.astimezone(zone)
+    return moment.strftime("%A, %b %d").replace(" 0", " ") + ", " + _clock(moment)
+
+
+def _answer(text: str):
+    """The JSON object with a "posts" list in the model's text (the last one, if the text has more)."""
+    decoder, found = json.JSONDecoder(), None
+    for start in (i for i, c in enumerate(text) if c == "{"):
+        try:
+            value, _ = decoder.raw_decode(text, start)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and isinstance(value.get("posts"), list):
+            found = value
+    return found
 
 
 def _card(event: dict) -> dict:
@@ -130,12 +164,14 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
     if not items:
         return {"ok": True, "posts": [], "skipped": skipped, "asked": False}
     instructions = (inputs.get("instructions") or "").strip() or DEFAULT_INSTRUCTIONS
-    prompt = json.dumps({"now": inputs["now"], "instructions": instructions, "items": items}, ensure_ascii=False)
-    answer = model.complete({"op": "complete", "system": SYSTEM, "max_tokens": 2048, "json": True,
+    today = now.strftime("%A, %b %d, %Y").replace(" 0", " ") + ", " + _clock(now)
+    prompt = json.dumps({"now": inputs["now"], "today": today, "instructions": instructions, "items": items},
+                        ensure_ascii=False)
+    answer = model.complete({"op": "complete", "system": SYSTEM, "max_tokens": 4096,
                              "messages": [{"role": "user", "content": prompt}]}, ctx)
     if not answer.get("ok"):
         return {"ok": False, "error": f"model: {answer.get('error', 'no answer')}"[:300], "asked": True}
-    data = answer.get("data")
+    data = _answer(answer.get("text") or "")
     proposed = data.get("posts") if isinstance(data, dict) else None
     if not isinstance(proposed, list):
         return {"ok": False, "error": "model: the answer has no posts list", "asked": True}
