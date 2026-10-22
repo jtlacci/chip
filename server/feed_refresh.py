@@ -68,7 +68,8 @@ def refresh_once() -> dict:
     # so the refresh keeps this list itself.)
     posted = set(state.get("posted", []))
     sources = {f"calendar:{e['id']}" for e in events["events"]} | {f"gmail:{m['id']}" for m in mail["messages"]}
-    if not sources - posted - seen:
+    new = len(sources - posted - seen)
+    if not new:
         return {"new": 0}
     answer = feed({"op": "refresh", "now": now, "instructions": instructions, "events": events["events"],
                    "mail": mail["messages"], "posted": sorted(posted | seen)})
@@ -86,7 +87,7 @@ def refresh_once() -> dict:
     seen |= sources - posted
     store({"op": "put", "collection": STATE[0], "key": STATE[1],
            "doc": {"instructions": instructions, "seen": sorted(seen), "posted": sorted(posted), "updated": now}})
-    return {"new": len(sources - posted), "posts": len(answer["posts"]), "skipped": len(answer.get("skipped", []))}
+    return {"new": new, "posts": len(answer["posts"]), "skipped": len(answer.get("skipped", []))}
 
 
 class Refresher:
