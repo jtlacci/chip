@@ -39,7 +39,10 @@ if [ ! -d "$OPT/hermes-agent/.git" ]; then
 fi
 git -C "$OPT/hermes-agent" fetch -q origin "$HERMES_COMMIT" 2>/dev/null || git -C "$OPT/hermes-agent" fetch -q origin
 git -C "$OPT/hermes-agent" checkout -q --force "$HERMES_COMMIT"
-(cd "$OPT/hermes-agent" && UV_CACHE_DIR="$OPT/uv-cache" "$OPT/uv/bin/uv" sync -q --frozen --no-dev --python python3 \
+# The lock file needs Python 3.14: uv installs its own copy under $OPT/python.
+export UV_CACHE_DIR="$OPT/uv-cache" UV_PYTHON_INSTALL_DIR="$OPT/python"
+"$OPT/uv/bin/uv" python install -q 3.14
+(cd "$OPT/hermes-agent" && "$OPT/uv/bin/uv" sync -q --frozen --no-dev --managed-python --python 3.14 \
    --extra messaging --extra mcp --extra anthropic --extra firecrawl)
 chmod -R a+rX "$OPT"
 PYTHON="$OPT/hermes-agent/.venv/bin/python"
