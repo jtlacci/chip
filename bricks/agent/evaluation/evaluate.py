@@ -245,13 +245,14 @@ def generate(seed: int) -> list[dict]:
                   "memory": rng.sample(MEMORY, rng.randint(0, len(MEMORY))),
                   "_goal": goal, "_secrets": secrets, **extra}
         cases.append({"input": inputs, "exchanges": []})
-    for index, (ask, goal, found, facts) in enumerate(WEB_ASKS * 2):
+    # Four of each web question per seed (two "need", two "have"), so every split has cases for both web gates.
+    for index, (ask, goal, found, facts) in enumerate(WEB_ASKS * 4):
         author = rng.choice(PEOPLE)
         inputs = {"op": "reply", "now": _iso(NOW), "chat": {"id": "general", "title": "General"},
                   "messages": [{"author": author[0], "name": author[1], "text": ask, "time": _iso(NOW)}],
                   "user": {"user_id": author[0], "name": author[1], "role": author[2]},
                   "events": _events(rng), "mail": _mail(rng, []), "memory": [], "_secrets": []}
-        if index < len(WEB_ASKS):
+        if (index // len(WEB_ASKS)) % 2 == 0:
             cases.append({"input": {**inputs, "_web": "need", "_goal": f"asks for a web task to find {goal}, and does "
                                     "not guess"}, "exchanges": []})
         else:
