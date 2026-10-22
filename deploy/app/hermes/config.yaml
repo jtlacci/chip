@@ -1,0 +1,35 @@
+# Hermes Agent configuration for CHIP. deploy/app/hermes_setup.sh copies it to
+# HERMES_HOME and fills in the @@...@@ values. Human-only: each change is reviewed.
+
+model:
+  default: "claude-sonnet-5-5"
+  provider: "anthropic"
+
+# The API server (CHIP's chat) gets CHIP's tools and the web, nothing else:
+# no terminal, files, code, browser, delegation or cron on a shared server.
+platform_toolsets:
+  api_server: [web, chip]
+agent:
+  disabled_toolsets: [terminal, file, code_execution, delegation, browser, computer_use, cronjob, kanban, image_gen,
+                      video_gen, tts, skills, connections, vision, todo, clarify, memory, session_search]
+
+# CHIP's shared memory is the memory brick (the chip tools), not Hermes's per-profile notes.
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+
+# Every tool stays visible to the model (no tool_search bridge): CHIP has few tools.
+tools:
+  tool_search:
+    enabled: "off"
+
+# CHIP's tools: server/chip_mcp.py forwards each call to the CHIP server's tool socket.
+mcp_servers:
+  chip:
+    command: "@@PYTHON@@"
+    args: ["@@APP@@/server/chip_mcp.py"]
+    env:
+      CHIP_TOOLS_SOCKET: "/run/chip-tools/tools.sock"
+    timeout: 60
+    connect_timeout: 20
+    trust: full

@@ -295,6 +295,9 @@ def main() -> None:
         REFRESHER.start()
     if os.environ.get("CHIP_AGENT", "1") == "1":
         REPLIER.start()
+    if os.environ.get("CHIP_TOOLS_SOCKET"):
+        import chip_tools   # server/chip_tools.py: the Hermes agent's tools
+        chip_tools.serve(os.environ["CHIP_TOOLS_SOCKET"], os.environ.get("CHIP_TOOLS_GROUP"))
     http.server.ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 
