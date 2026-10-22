@@ -7,7 +7,7 @@ from ..contract import DEFAULT_TOKENS, MAX_CHARS, MAX_MESSAGES, MAX_TOKENS, ROLE
 
 # The contract documents these. They are here too, because the evaluation runner
 # takes contract.py from the base commit (it is human-only).
-BLOCKS = ("text", "tool_use", "tool_result", "image")
+BLOCKS = ("text", "tool_use", "tool_result", "image", "thinking", "redacted_thinking")   # as in the contract
 MAX_TOOLS = 32
 MAX_IMAGE = 5_000_000
 TOOLSETS = ("computer_toolset_20260801",)
