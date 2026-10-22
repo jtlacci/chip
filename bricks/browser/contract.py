@@ -41,7 +41,7 @@ DETERMINISTIC = False
 SIBLING_DEPENDENCIES: dict[str, str] = {"model": "eventual"}
 OWNED_STATE: tuple[str, ...] = ()
 
-SEARCH = "https://html.duckduckgo.com/html/?q="
+SEARCH = "https://www.bing.com/search?q="
 ACTIONS = ("open", "back", "more", "look", "answer", "fail")
 MAX_GOAL = 1000
 MAX_QUERY = 300
