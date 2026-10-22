@@ -80,9 +80,12 @@ def judge_requests(record: dict, output: dict | None) -> list[dict]:
     inputs = record["input"]
     if not _new_sources(inputs) or not isinstance(output, dict) or not output.get("ok"):
         return []
-    items = [{"source": f"calendar:{e['id']}", "event": e.get("title"), "start": e.get("start"), "location": e.get("location")}
+    # The judge sees every field the feed gets, so a true fact (an end time, a mail date) is not called invented.
+    items = [{"source": f"calendar:{e['id']}", "event": e.get("title"), "start": e.get("start"), "end": e.get("end"),
+              "all_day": e.get("all_day"), "location": e.get("location")}
              for e in inputs.get("events", []) if f"calendar:{e['id']}" in _new_sources(inputs)]
-    items += [{"source": f"gmail:{m['id']}", "from": m.get("from"), "subject": m.get("subject"), "snippet": m.get("snippet")}
+    items += [{"source": f"gmail:{m['id']}", "from": m.get("from"), "subject": m.get("subject"), "date": m.get("date"),
+               "snippet": m.get("snippet")}
               for m in inputs.get("mail", []) if f"gmail:{m['id']}" in _new_sources(inputs)]
     posts = [{k: p.get(k) for k in ("source", "title", "body")} for p in output.get("posts", []) if isinstance(p, dict)]
     prompt = (f"Feed instructions: {inputs.get('instructions') or '(none: show what is happening)'}\n\n"
