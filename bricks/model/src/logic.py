@@ -38,6 +38,13 @@ def _block_chars(block: dict) -> int | None:
             sizes = [_block_chars(b) for b in content]
             return None if None in sizes else sum(sizes)
         return None
+    if kind == "thinking":
+        # The model's thinking, sent back unchanged: its text and the provider's signature.
+        if not isinstance(block.get("thinking"), str) or not isinstance(block.get("signature"), str):
+            return None
+        return len(block["thinking"])
+    if kind == "redacted_thinking":
+        return 0 if isinstance(block.get("data"), str) else None
     if kind == "image":
         source = block.get("source")
         if not isinstance(source, dict) or source.get("type") != "base64" \
