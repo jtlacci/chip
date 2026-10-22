@@ -6,7 +6,9 @@ the assistant's content blocks, which the caller sends back with the tool
 results in the next request (the agent brick runs that loop).
 input/config.yml names the provider and the model, so no caller names them,
 and a new provider is one new adapter. With "json", the answer must be one
-JSON value, returned as data. The API key never enters a brick: the adapter
+JSON value, returned as data. The assistant's content may hold thinking blocks
+(thinking, with its signature, or redacted_thinking): the caller sends them back
+unchanged, as the provider requires in a tool loop. The API key never enters a brick: the adapter
 reads it from a file outside every record.
 """
 
@@ -25,7 +27,8 @@ DEFAULT_TOKENS = 1024
 MAX_MESSAGES = 50
 MAX_CHARS = 100_000   # all text of one request
 ROLES = ("user", "assistant")
-BLOCKS = ("text", "tool_use", "tool_result", "image")
+BLOCKS = ("text", "tool_use", "tool_result", "image", "thinking", "redacted_thinking")
+# The model's own thinking blocks come back in "content"; a caller sends them back unchanged in the next request.
 MAX_TOOLS = 32
 MAX_IMAGE = 5_000_000          # base64 characters of one image
 TOOLSETS = ("computer_toolset_20260801",)   # provider toolsets a caller may ask for
