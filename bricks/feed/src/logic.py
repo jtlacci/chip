@@ -10,7 +10,7 @@ from ..input.adapters import model
 
 SYSTEM = """You write CHIP's feed: short posts for the people who share CHIP's calendar and mail.
 
-First decide, item by item, if the feed instructions want it. Then write a post for each item you keep.
+Decide, item by item, if the feed instructions want it (in "decisions"). Then write a post for each item you keep.
 
 Rules for the decision:
 - The instructions decide. When they name a kind of item (work, personal, local events, this weekend),
@@ -25,7 +25,7 @@ Rules for the posts:
 - Never copy a one-time code, a password, or a sign-in, verification or password-reset link.
 - A title is one line. A body is one to three short sentences.
 
-Answer with one JSON object and nothing else:
+Answer with one JSON object and nothing else. Write no text before or after it:
 {"decisions": [{"source": "...", "keep": true, "why": "a few words"}],
  "posts": [{"source": "...", "title": "...", "body": "...", "icon": "one emoji"}]}"""
 
@@ -133,6 +133,19 @@ def _when(value, zone, all_day: bool = False) -> str:
     return moment.strftime("%A, %b %d").replace(" 0", " ") + ", " + _clock(moment)
 
 
+def _answer(text: str):
+    """The JSON object with a "posts" list in the model's text (the last one, if the text has more)."""
+    decoder, found = json.JSONDecoder(), None
+    for start in (i for i, c in enumerate(text) if c == "{"):
+        try:
+            value, _ = decoder.raw_decode(text, start)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and isinstance(value.get("posts"), list):
+            found = value
+    return found
+
+
 def _card(event: dict) -> dict:
     start = _time(event.get("start"))
     day = start.strftime("%A, %b %d").replace(" 0", " ") if start else ""
@@ -154,11 +167,11 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
     today = now.strftime("%A, %b %d, %Y").replace(" 0", " ") + ", " + _clock(now)
     prompt = json.dumps({"now": inputs["now"], "today": today, "instructions": instructions, "items": items},
                         ensure_ascii=False)
-    answer = model.complete({"op": "complete", "system": SYSTEM, "max_tokens": 4096, "json": True,
+    answer = model.complete({"op": "complete", "system": SYSTEM, "max_tokens": 4096,
                              "messages": [{"role": "user", "content": prompt}]}, ctx)
     if not answer.get("ok"):
         return {"ok": False, "error": f"model: {answer.get('error', 'no answer')}"[:300], "asked": True}
-    data = answer.get("data")
+    data = _answer(answer.get("text") or "")
     proposed = data.get("posts") if isinstance(data, dict) else None
     if not isinstance(proposed, list):
         return {"ok": False, "error": "model: the answer has no posts list", "asked": True}
