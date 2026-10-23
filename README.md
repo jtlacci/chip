@@ -16,6 +16,7 @@ A personal agent web app, built on [brick-framework](https://github.com/jtlacci/
 | `memory` | CHIP's shared memory: the agent saves facts and finds them by words (SQLite full-text search); secrets are refused | No |
 | `redact` | Hides one-time codes and sign-in or reset links in every text CHIP's tools give the agent and in every reply (`LANE = "pure"`) | No |
 | `agent` | CHIP's answer in chat: a tool loop on the model brick over a snapshot of the calendar, the mail and the memory | No |
+| `assistant` | CHIP's answer in chat from the Hermes agent: the system prompt, the conversation and the pinned Hermes (commit, model, persona in `input/config.yml`); the runner evaluates it with that Hermes and fixture tools | No |
 | `browser` | Reads the web for a task, read-only: the model chooses one typed action per step (open a link, back, more, look, answer, fail); GET only, a new browser profile for each page, no private addresses | No |
 
 Approvals come in a later milestone.

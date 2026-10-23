@@ -2,7 +2,7 @@
 # HERMES_HOME and fills in the @@...@@ values. Human-only: each change is reviewed.
 
 model:
-  default: "claude-sonnet-5-5"
+  default: "@@MODEL@@"   # bricks/assistant/input/config.yml
   provider: "anthropic"
 
 # The API server (CHIP's chat) gets CHIP's tools and the web, nothing else:
