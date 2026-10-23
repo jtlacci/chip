@@ -79,6 +79,17 @@ def _words(text) -> list[str]:
     return [w for w in WORD.findall(str(text).lower()) if len(w) >= 2]
 
 
+SUFFIXES = ("ences", "ence", "ings", "ing", "edly", "ies", "ed", "es", "s")
+
+
+def _stem(word: str) -> str:
+    """A small stemmer, close to porter for CHIP's words: prefers, preference -> prefer; dinners -> dinner."""
+    for suffix in SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[:-len(suffix)] + ("y" if suffix == "ies" else "")
+    return word
+
+
 def tool_call(fixture: dict, name: str, args: dict) -> dict:
     """The fixture's answer to one tool call, as the server's tools answer from the real calendar, mail and memory."""
     if name == "calendar_list":
@@ -102,8 +113,9 @@ def tool_call(fixture: dict, name: str, args: dict) -> dict:
                 return {k: m.get(k) for k in ("id", "from", "to", "subject", "date", "snippet", "text")}
         return {"error": "gmail: no such message"}
     if name == "memory_search":
-        words = _words(args.get("query", ""))
-        found = [f for f in fixture.get("memory", []) if any(w in str(f.get("text", "")).lower() for w in words)]
+        # As the memory brick's database: whole words, stemmed (FTS5 porter), any word matches.
+        words = {_stem(w) for w in _words(args.get("query", ""))}
+        found = [f for f in fixture.get("memory", []) if words & {_stem(w) for w in _words(f.get("text", ""))}]
         return {"facts": [{"text": f.get("text"), "saved": f.get("time")} for f in found[:10]]}
     if name == "remember":
         text = " ".join(str(args.get("text", "")).split())
