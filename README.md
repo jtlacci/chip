@@ -15,15 +15,13 @@ A personal agent web app, built on [brick-framework](https://github.com/jtlacci/
 | `feed` | Chooses what the feed shows from the calendar, the mail and the instructions; the model writes the posts; every post is checked | No |
 | `memory` | CHIP's shared memory: the agent saves facts and finds them by words (SQLite full-text search); secrets are refused | No |
 | `redact` | Hides one-time codes and sign-in or reset links in every text CHIP's tools give the agent and in every reply (`LANE = "pure"`) | No |
-| `agent` | CHIP's answer in chat: a tool loop on the model brick over a snapshot of the calendar, the mail and the memory | No |
 | `assistant` | CHIP's answer in chat from the Hermes agent: the system prompt, the conversation and the pinned Hermes (commit, model, persona in `input/config.yml`); the runner evaluates it with that Hermes and fixture tools | No |
-| `browser` | Reads the web for a task, read-only: the model chooses one typed action per step (open a link, back, more, look, answer, fail); GET only, a new browser profile for each page, no private addresses | No |
 
 Approvals come in a later milestone.
 
 ## Running CHIP
 
-CHIP runs at https://184-197-162-29.sslip.io on its own EC2 instance (`deploy/app/bootstrap.sh`): Caddy serves HTTPS, and a timer deploys `main` every 2 minutes. CHIP's chat agent is [Hermes](https://github.com/NousResearch/hermes-agent) (`chip-hermes`, set up by `deploy/app/hermes_setup.sh`, pinned to one commit): it runs as a separate user with only CHIP's tools (`server/chip_tools.py`, through the MCP server `server/chip_mcp.py`) and the web, and no terminal, file or code tools; `CHIP_AGENT_ENGINE=hermes` turns it on. The browser brick's browser runs in a separate service, `chip-web` (`server/web_worker.py`, set up by `deploy/app/web_setup.sh`), as a user that can read none of CHIP's data; the kernel blocks its traffic to private, loopback and metadata addresses. Sign-in is Google, with the openid, email and profile scopes only. The admin connects CHIP's own Google account once from the agent panel; the refresh token stays in a file on the server and in SSM, never in a brick.
+CHIP runs at https://184-197-162-29.sslip.io on its own EC2 instance (`deploy/app/bootstrap.sh`): Caddy serves HTTPS, and a timer deploys `main` every 2 minutes. CHIP's chat agent is [Hermes](https://github.com/NousResearch/hermes-agent) (`chip-hermes`, set up by `deploy/app/hermes_setup.sh`, pinned to one commit): it runs as a separate user with only CHIP's tools (`server/chip_tools.py`, through the MCP server `server/chip_mcp.py`) and the web, and no terminal, file or code tools; Sign-in is Google, with the openid, email and profile scopes only. The admin connects CHIP's own Google account once from the agent panel; the refresh token stays in a file on the server and in SSM, never in a brick.
 
 `server/serve.py` serves the app and turns each `/api/*` request into one api run. It mints session and invite tokens and passes only their hashes to the bricks. Run it locally:
 
