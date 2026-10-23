@@ -85,7 +85,10 @@ def execute(inputs: BrickInput, ctx: dict) -> BrickOutput:
     user, chat = inputs.get("user") or {}, inputs.get("chat") or {}
     system = (SYSTEM.replace("{title}", str(chat.get("title") or "General")).replace("{now}", str(inputs["now"]))
               .replace("{name}", str(user.get("name") or "someone")).replace("{role}", str(user.get("role") or "guest")))
+    # "now" is the time of the reply: the server's Hermes runs on the same clock, and the evaluation runner
+    # sets Hermes's clock to it.
     request = {"system": system, "messages": conversation(inputs["messages"], int(config.get("max_messages", 30))),
+               "now": str(inputs["now"]),
                "profile": {"commit": str(config["hermes_commit"]), "model": str(config["model"]),
                            "soul": str(config.get("soul", ""))}}
     answer = hermes.reply(request, ctx)
