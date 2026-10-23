@@ -11,25 +11,34 @@
 #   (/run/chip-tools/tools.sock, group chiptools).
 # - Its tools: CHIP's tools and the web. No terminal, files or code (config.yaml).
 #
+# - The Hermes commit, the model and the persona come from the assistant brick
+#   (bricks/assistant/input/config.yml): the evaluation runner evaluates that same Hermes.
+#
 # This installs and starts Hermes; CHIP uses it only with CHIP_AGENT_ENGINE=hermes in
-# /etc/chip/env (pass --use to set it).
+# /etc/chip/env (pass --use to set it). chip-deploy runs it with --refresh after each
+# deploy: it installs a new commit if the brick names one, rewrites the config and the
+# persona, and restarts Hermes.
 set -euo pipefail
-HERMES_COMMIT=41dfcf2c1bd7146d4ad46aea08b7dd007900602e
 OPT=/opt/chip-hermes
 HOME_DIR=/var/lib/chip-hermes
 APP=/opt/chip/repo
 CONF=/etc/chip
+brick() { (cd "$APP" && python3 -c "import sys; from bricks import _runtime; print(_runtime.load_config('assistant')[sys.argv[1]])" "$1"); }
+HERMES_COMMIT="$(brick hermes_commit)"
+MODEL="$(brick model)"
+REFRESH=false; [ "${1:-}" = "--refresh" ] && REFRESH=true
+case "$HERMES_COMMIT" in *[!0-9a-f]*|"") echo "bad hermes_commit: $HERMES_COMMIT"; exit 1 ;; esac
+[ ${#HERMES_COMMIT} -eq 40 ] || { echo "hermes_commit must be a full hash"; exit 1; }
 REGION="$(grep '^CHIP_SSM_REGION=' $CONF/env | cut -d= -f2)"
 ssm_get() { aws ssm get-parameter --region "$REGION" --name "$1" --with-decryption --query Parameter.Value --output text 2>/dev/null || true; }
 say() { echo "[hermes $(date -u +%FT%TZ)] $*"; }
 
+if ! $REFRESH; then
 say "users"
 getent group chiptools >/dev/null || groupadd --system chiptools
 id hermes >/dev/null 2>&1 || useradd --system --home-dir "$HOME_DIR" --shell /usr/sbin/nologin hermes
 usermod -aG chiptools hermes
 usermod -aG chiptools chip
-
-say "code ($HERMES_COMMIT)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -q python3-venv git >/dev/null
 install -d -m 755 -o root -g root "$OPT"
@@ -37,6 +46,10 @@ install -d -m 755 -o root -g root "$OPT"
 if [ ! -d "$OPT/hermes-agent/.git" ]; then
   git clone -q https://github.com/NousResearch/hermes-agent.git "$OPT/hermes-agent"
 fi
+fi
+
+if [ "$(git -C "$OPT/hermes-agent" rev-parse HEAD 2>/dev/null)" != "$HERMES_COMMIT" ] || ! $REFRESH; then
+say "code ($HERMES_COMMIT)"
 git -C "$OPT/hermes-agent" fetch -q origin "$HERMES_COMMIT" 2>/dev/null || git -C "$OPT/hermes-agent" fetch -q origin
 git -C "$OPT/hermes-agent" checkout -q --force "$HERMES_COMMIT"
 # The lock file needs Python 3.14: uv installs its own copy under $OPT/python.
@@ -45,12 +58,22 @@ export UV_CACHE_DIR="$OPT/uv-cache" UV_PYTHON_INSTALL_DIR="$OPT/python"
 (cd "$OPT/hermes-agent" && "$OPT/uv/bin/uv" sync -q --frozen --no-dev --managed-python --python 3.14 \
    --extra messaging --extra mcp --extra anthropic --extra firecrawl)
 chmod -R a+rX "$OPT"
+fi
 PYTHON="$OPT/hermes-agent/.venv/bin/python"
 
-say "home and secrets"
+say "config ($MODEL)"
 install -d -m 700 -o hermes -g hermes "$HOME_DIR"
-sed -e "s|@@PYTHON@@|$PYTHON|" -e "s|@@APP@@|$APP|" "$APP/deploy/app/hermes/config.yaml" > "$HOME_DIR/config.yaml"
-cp "$APP/deploy/app/hermes/SOUL.md" "$HOME_DIR/SOUL.md"
+sed -e "s|@@PYTHON@@|$PYTHON|" -e "s|@@APP@@|$APP|" -e "s|@@MODEL@@|$MODEL|" \
+  "$APP/deploy/app/hermes/config.yaml" > "$HOME_DIR/config.yaml"
+brick soul > "$HOME_DIR/SOUL.md"
+chown hermes:hermes "$HOME_DIR/config.yaml" "$HOME_DIR/SOUL.md"
+if $REFRESH; then
+  systemctl restart chip-hermes.service
+  say "refreshed"
+  exit 0
+fi
+
+say "secrets"
 umask 077
 [ -s "$CONF/hermes-key" ] || python3 -c "import secrets; print(secrets.token_urlsafe(32))" > "$CONF/hermes-key"
 chown chip:chip "$CONF/hermes-key"; chmod 600 "$CONF/hermes-key"
@@ -75,7 +98,8 @@ Wants=network-online.target
 [Service]
 User=hermes
 Group=hermes
-WorkingDirectory=$OPT/hermes-agent
+# Its own home, not the checkout: Hermes reads context files (AGENTS.md) from its working folder.
+WorkingDirectory=$HOME_DIR
 Environment=HERMES_HOME=$HOME_DIR
 Environment=API_SERVER_ENABLED=true
 Environment=API_SERVER_HOST=127.0.0.1
@@ -113,9 +137,12 @@ if [ "${1:-}" = "--use" ]; then
   grep -q '^CHIP_AGENT_ENGINE=' $CONF/env && sed -i 's/^CHIP_AGENT_ENGINE=.*/CHIP_AGENT_ENGINE=hermes/' $CONF/env \
     || echo "CHIP_AGENT_ENGINE=hermes" >> $CONF/env
 fi
-# Deploys restart Hermes too (it starts chip_mcp.py from the repo).
+# Deploys refresh Hermes too: a new commit, model or persona from the brick, and
+# chip_mcp.py from the repo (it starts with Hermes).
+sed -i 's|if systemctl is-enabled --quiet chip-hermes 2>/dev/null; then systemctl restart chip-hermes; fi|if systemctl is-enabled --quiet chip-hermes 2>/dev/null; then bash /opt/chip/repo/deploy/app/hermes_setup.sh --refresh; fi|' \
+  /usr/local/bin/chip-deploy
 grep -q chip-hermes /usr/local/bin/chip-deploy || sed -i \
-  's|^  systemctl restart chip$|  systemctl restart chip\n  if systemctl is-enabled --quiet chip-hermes 2>/dev/null; then systemctl restart chip-hermes; fi|' \
+  's|^  systemctl restart chip$|  systemctl restart chip\n  if systemctl is-enabled --quiet chip-hermes 2>/dev/null; then bash /opt/chip/repo/deploy/app/hermes_setup.sh --refresh; fi|' \
   /usr/local/bin/chip-deploy
 systemctl daemon-reload
 systemctl enable chip-hermes.service >/dev/null

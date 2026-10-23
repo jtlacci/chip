@@ -1,0 +1,36 @@
+# Evaluation policy for this brick. Human-only: a change needs human approval.
+
+# Which paths each loop may change, relative to the brick folder. A path in no
+# surface is human-only, and this file, data.lock and contract.py are always human-only.
+# The code loop may change the system prompt (src/), the Hermes commit, the model and
+# the persona (input/config.yml): each such change is evaluated with that Hermes.
+surfaces:
+  implementation: [src/**, input/adapters/**, input/config.yml, runner/**, __main__.py]
+  evaluation: [evaluation/evaluate.py]
+code_loop: [implementation]
+eval_loop: [evaluation]
+
+split:
+  kind: hash
+  validation: 0.2
+  holdout: 0.2
+  min_holdout: 5
+
+selection:
+  method: best
+  metric: correct
+
+seeds: [1, 2, 3]
+label_horizon_seconds: 0
+max_out_of_evidence: 0.0
+
+# The runner answers external:hermes with the brick's pinned Hermes, in its sandbox,
+# with the evaluation's fixture tools (see the brick-runner README).
+live_externals: [hermes]
+
+# Limits on one evaluation run of one split. A change cannot raise its own budget.
+budget:
+  max_cases: 100
+  max_seconds: 3600
+  max_model_calls: 600
+  max_model_tokens: 15000000
