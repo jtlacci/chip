@@ -19,9 +19,22 @@ def _path() -> str:
     return str(Path(os.environ.get("CHIP_DB", "chip.db")).resolve().parent / "memory.db")
 
 
+# The porter stemmer: a search for "preference" finds "prefers", "dinners" finds "dinner".
+TABLE = "fts5(id UNINDEXED, text, time UNINDEXED, tokenize='porter unicode61')"
+
+
 def _connect() -> sqlite3.Connection:
     connection = sqlite3.connect(_path())
-    connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS facts USING fts5(id UNINDEXED, text, time UNINDEXED)")
+    row = connection.execute("SELECT sql FROM sqlite_master WHERE name = 'facts'").fetchone()
+    if row is None:
+        connection.execute(f"CREATE VIRTUAL TABLE facts USING {TABLE}")
+    elif "porter" not in row[0]:
+        # A table from before the stemmer: copy its facts into a new one.
+        with connection:
+            connection.execute(f"CREATE VIRTUAL TABLE facts_porter USING {TABLE}")
+            connection.execute("INSERT INTO facts_porter (id, text, time) SELECT id, text, time FROM facts")
+            connection.execute("DROP TABLE facts")
+            connection.execute("ALTER TABLE facts_porter RENAME TO facts")
     return connection
 
 
