@@ -103,7 +103,6 @@ if [ "$(sudo -u chip git rev-parse HEAD)" != "$(sudo -u chip git rev-parse origi
   sudo -u chip git reset -q --hard origin/main
   (cd bricks/web/app && sudo -u chip node build.js)
   systemctl restart chip
-  if systemctl is-enabled --quiet chip-web 2>/dev/null; then systemctl restart chip-web; fi
   echo "deployed $(sudo -u chip git rev-parse --short HEAD)"
 fi
 EOF
@@ -126,9 +125,7 @@ WantedBy=timers.target
 EOF
 systemctl daemon-reload
 systemctl enable --now chip.service chip-deploy.timer
-say "web worker"
-bash "$APP/repo/deploy/app/web_setup.sh" || say "error: the web worker did not install (the agent cannot browse)"
 say "hermes agent"
-bash "$APP/repo/deploy/app/hermes_setup.sh" --use || say "error: Hermes did not install (CHIP answers with the agent brick)"
+bash "$APP/repo/deploy/app/hermes_setup.sh" || say "error: Hermes did not install (CHIP cannot answer in chat)"
 sleep 5
 systemctl is-active --quiet chip && status "running at https://$HOST" || status "error: the CHIP server did not start"

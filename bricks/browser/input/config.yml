@@ -1,6 +1,0 @@
-brick: browser
-
-# The browser's limits. Never store credentials or secrets here.
-max_steps: 8          # model calls in one task, when the input names none
-page_chars: 6000      # characters of page text the model sees at once ("more" shows the next part)
-max_links: 120        # links of one page the model sees

@@ -14,8 +14,7 @@
 # - The Hermes commit, the model and the persona come from the assistant brick
 #   (bricks/assistant/input/config.yml): the evaluation runner evaluates that same Hermes.
 #
-# This installs and starts Hermes; CHIP uses it only with CHIP_AGENT_ENGINE=hermes in
-# /etc/chip/env (pass --use to set it). chip-deploy runs it with --refresh after each
+# This installs and starts Hermes, CHIP's only chat agent. chip-deploy runs it with --refresh after each
 # deploy: it installs a new commit if the brick names one, rewrites the config and the
 # persona, and restarts Hermes.
 set -euo pipefail
@@ -133,10 +132,6 @@ for line in CHIP_TOOLS_SOCKET=/run/chip-tools/tools.sock CHIP_TOOLS_GROUP=chipto
             CHIP_HERMES_KEY_FILE=$CONF/hermes-key CHIP_HERMES_URL=http://127.0.0.1:8642; do
   grep -q "^${line%%=*}=" $CONF/env || echo "$line" >> $CONF/env
 done
-if [ "${1:-}" = "--use" ]; then
-  grep -q '^CHIP_AGENT_ENGINE=' $CONF/env && sed -i 's/^CHIP_AGENT_ENGINE=.*/CHIP_AGENT_ENGINE=hermes/' $CONF/env \
-    || echo "CHIP_AGENT_ENGINE=hermes" >> $CONF/env
-fi
 # Deploys refresh Hermes too: a new commit, model or persona from the brick, and
 # chip_mcp.py from the repo (it starts with Hermes).
 sed -i 's|if systemctl is-enabled --quiet chip-hermes 2>/dev/null; then systemctl restart chip-hermes; fi|if systemctl is-enabled --quiet chip-hermes 2>/dev/null; then bash /opt/chip/repo/deploy/app/hermes_setup.sh --refresh; fi|' \
