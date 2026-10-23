@@ -1,4 +1,11 @@
-"""CHIP's reply: build the system prompt and the conversation, ask Hermes, hide secrets in what comes back."""
+"""CHIP's reply: build the system prompt and the conversation, ask Hermes, hide secrets in what comes back.
+
+The system prompt names the chat, the time and the person who asks. The
+conversation is the chat's last max_messages messages: people as "user"
+messages that start with their names, CHIP as "assistant", one message for
+each turn, a person first. The reply and the step labels go through the
+redact brick; if it fails, the text is hidden completely.
+"""
 
 from datetime import datetime
 
