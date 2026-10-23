@@ -8,7 +8,7 @@ agent, and hides one-time codes and sign-in or reset links in the reply and the
 step labels (the redact brick).
 
 The call to Hermes (external "hermes") is exactly:
-    {"system": <the system prompt>, "messages": [{"role", "content"}],
+    {"system": <the system prompt>, "messages": [{"role", "content"}], "now": <the input's now>,
      "profile": {"commit": config hermes_commit, "model": config model, "soul": config soul}}
     -> {"text": the reply, "steps": [{"tool", "label"}]} or {"error": text}
 The profile names the Hermes that answers: the server's Hermes runs that commit,
